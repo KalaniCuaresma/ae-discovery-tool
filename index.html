@@ -375,10 +375,11 @@ Fields:
     </div>
     <nav class="sidebar-nav" id="sidebarNav"></nav>
     <div class="sidebar-footer">
-      <div class="sf-status"><span class="dot"></span> ☁️ Salesforce Connected</div>
+      <div class="sf-status"><span class="dot sf-dot"></span> <span class="sf-label">☁️ Salesforce</span></div>
       <div class="sf-last-sync" id="sfLastSync">Not yet synced</div>
       <button class="sidebar-btn" onclick="syncToSalesforce()">☁️ Sync to Salesforce</button>
       <button class="sidebar-btn primary" onclick="submitForOnboarding()">📤 Submit for Onboarding</button>
+      <button class="sidebar-btn" onclick="openSettings()" style="margin-top:4px;font-size:11px;opacity:.7">⚙️ Integration Settings</button>
     </div>
   </aside>
   <div class="main">
@@ -393,6 +394,7 @@ Fields:
         <button class="btn" onclick="saveDraft()">💾 Save</button>
         <button class="btn btn-orange" onclick="loadExample()">📄 Load Example</button>
         <button class="btn" onclick="newDiscovery()">🆕 New</button>
+        <button class="btn" onclick="openSettings()" title="Integration Settings">⚙️</button>
       </div>
     </div>
     <div class="content" id="content"></div>
@@ -408,6 +410,51 @@ Fields:
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
+// ===== INTEGRATION CONFIG =====
+// These can be set via the Settings panel (gear icon) or directly here.
+// Values are persisted in localStorage under 'ae_discovery_config'.
+var CONFIG = {
+  // Slack Incoming Webhook URL — create at https://api.slack.com/apps → Incoming Webhooks
+  SLACK_WEBHOOK_URL: '',
+  SLACK_CHANNEL_NAME: '#onboarding-handoffs',
+
+  // Salesforce Connected App — create in Setup → App Manager → New Connected App
+  SF_CLIENT_ID: '',
+  SF_CLIENT_SECRET: '',
+  SF_REDIRECT_URI: window.location.origin + window.location.pathname,
+  SF_LOGIN_URL: 'https://login.salesforce.com',
+  SF_INSTANCE_URL: '',
+  SF_ACCESS_TOKEN: '',
+  SF_REFRESH_TOKEN: '',
+
+  // Feature flags
+  SLACK_ENABLED: false,
+  SF_ENABLED: false
+};
+
+function loadConfig(){
+  try {
+    var saved = localStorage.getItem('ae_discovery_config');
+    if(saved){
+      var parsed = JSON.parse(saved);
+      Object.keys(parsed).forEach(function(k){ CONFIG[k] = parsed[k]; });
+    }
+  } catch(e){}
+  // Check URL for Salesforce OAuth callback
+  var params = new URLSearchParams(window.location.search);
+  var code = params.get('code');
+  if(code && CONFIG.SF_CLIENT_ID){
+    exchangeSFToken(code);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+}
+
+function saveConfig(){
+  try { localStorage.setItem('ae_discovery_config', JSON.stringify(CONFIG)); } catch(e){}
+}
+
+loadConfig();
+
 var SECTIONS=[
   {id:'business',icon:'🏢',name:'Business Overview'},
   {id:'goals',icon:'⚠️',name:'Goals & Pain Points'},
@@ -1215,32 +1262,159 @@ function loadExample(){
   showToast('📄 Example loaded: Triple Crossing Brewing (3 locations)','info');
 }
 
-// SALESFORCE SYNC
+// ===== SALESFORCE INTEGRATION =====
+
+function sfIsConnected(){
+  return CONFIG.SF_ENABLED && CONFIG.SF_ACCESS_TOKEN && CONFIG.SF_INSTANCE_URL;
+}
+
+function sfConnect(){
+  if(!CONFIG.SF_CLIENT_ID){
+    showToast('⚙️ Configure Salesforce Client ID in Settings first','error');
+    openSettings();
+    return;
+  }
+  // OAuth 2.0 Authorization Code Flow
+  var authUrl = CONFIG.SF_LOGIN_URL + '/services/oauth2/authorize'
+    + '?response_type=code'
+    + '&client_id=' + encodeURIComponent(CONFIG.SF_CLIENT_ID)
+    + '&redirect_uri=' + encodeURIComponent(CONFIG.SF_REDIRECT_URI)
+    + '&scope=' + encodeURIComponent('api refresh_token')
+    + '&prompt=consent';
+  window.location.href = authUrl;
+}
+
+function exchangeSFToken(code){
+  var tokenUrl = CONFIG.SF_LOGIN_URL + '/services/oauth2/token';
+  var body = 'grant_type=authorization_code'
+    + '&code=' + encodeURIComponent(code)
+    + '&client_id=' + encodeURIComponent(CONFIG.SF_CLIENT_ID)
+    + '&client_secret=' + encodeURIComponent(CONFIG.SF_CLIENT_SECRET)
+    + '&redirect_uri=' + encodeURIComponent(CONFIG.SF_REDIRECT_URI);
+
+  fetch(tokenUrl, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: body
+  }).then(function(resp){ return resp.json(); })
+  .then(function(json){
+    if(json.access_token){
+      CONFIG.SF_ACCESS_TOKEN = json.access_token;
+      CONFIG.SF_REFRESH_TOKEN = json.refresh_token || '';
+      CONFIG.SF_INSTANCE_URL = json.instance_url || '';
+      CONFIG.SF_ENABLED = true;
+      saveConfig();
+      updateSFStatus();
+      showToast('✅ Connected to Salesforce!','success');
+    } else {
+      showToast('❌ Salesforce auth failed: '+(json.error_description||json.error||'Unknown error'),'error');
+    }
+  }).catch(function(err){
+    showToast('❌ Salesforce token exchange failed: '+err.message,'error');
+  });
+}
+
+function sfRefreshToken(){
+  if(!CONFIG.SF_REFRESH_TOKEN) return Promise.reject(new Error('No refresh token'));
+  var tokenUrl = CONFIG.SF_LOGIN_URL + '/services/oauth2/token';
+  var body = 'grant_type=refresh_token'
+    + '&refresh_token=' + encodeURIComponent(CONFIG.SF_REFRESH_TOKEN)
+    + '&client_id=' + encodeURIComponent(CONFIG.SF_CLIENT_ID)
+    + '&client_secret=' + encodeURIComponent(CONFIG.SF_CLIENT_SECRET);
+
+  return fetch(tokenUrl, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: body
+  }).then(function(resp){ return resp.json(); })
+  .then(function(json){
+    if(json.access_token){
+      CONFIG.SF_ACCESS_TOKEN = json.access_token;
+      if(json.instance_url) CONFIG.SF_INSTANCE_URL = json.instance_url;
+      saveConfig();
+      return true;
+    }
+    throw new Error(json.error_description||'Refresh failed');
+  });
+}
+
+function sfApiCall(method, path, payload, retried){
+  if(!sfIsConnected()){
+    return Promise.reject(new Error('Not connected to Salesforce'));
+  }
+  var url = CONFIG.SF_INSTANCE_URL + path;
+  var opts = {
+    method: method,
+    headers: {
+      'Authorization': 'Bearer ' + CONFIG.SF_ACCESS_TOKEN,
+      'Content-Type': 'application/json'
+    }
+  };
+  if(payload) opts.body = JSON.stringify(payload);
+
+  return fetch(url, opts).then(function(resp){
+    if(resp.status === 401 && !retried){
+      // Token expired — try refresh
+      return sfRefreshToken().then(function(){
+        return sfApiCall(method, path, payload, true);
+      });
+    }
+    if(!resp.ok){
+      return resp.json().then(function(err){
+        throw new Error((err[0]&&err[0].message)||'Salesforce API error: '+resp.status);
+      });
+    }
+    if(resp.status === 204) return {};
+    return resp.json();
+  });
+}
+
 function syncToSalesforce(){
   collectAllFields();
   var body=document.getElementById('modalBody');
   var footer=document.getElementById('modalFooter');
   document.getElementById('modalTitle').textContent='☁️ Sync to Salesforce';
-  var preview='<div style="font-size:13px;margin-bottom:12px;color:var(--gray-500)">The following fields will be synced:</div>';
+
   var mappings=[
-    ['Account Name',data.business.name],
-    ['Locations',data.business.locations],
-    ['Business Type',data.business.type],
-    ['Annual Revenue',data.business.revenue],
-    ['Current POS',data.current.pos],
-    ['Square Product',(data.technical.products||[]).join(', ')],
-    ['SaaS Tier',data.technical.tier],
-    ['Go-Live Date',data.timeline.goLive],
-    ['Decision Maker',data.goals.decisionMaker.name],
-    ['AE',data.aeName]
+    ['Account Name','Name',data.business.name],
+    ['Number of Locations','Number_of_Locations__c',data.business.locations],
+    ['Business Type','Type',data.business.type],
+    ['Annual Revenue','AnnualRevenue',data.business.revenue],
+    ['Current POS','Current_POS__c',data.current.pos],
+    ['Square Product','Square_Product__c',(data.technical.products||[]).join(', ')],
+    ['SaaS Tier','SaaS_Tier__c',data.technical.tier],
+    ['Go-Live Date','Go_Live_Date__c',data.timeline.goLive],
+    ['Decision Maker','Decision_Maker__c',data.goals.decisionMaker.name],
+    ['AE Name','AE_Name__c',data.aeName],
+    ['Pain Points','Pain_Points__c',data.goals.painPoints],
+    ['Must-Have Features','Must_Have_Features__c',Object.keys(data.migration.mustHave).filter(function(k){return data.migration.mustHave[k];}).join(', ')],
+    ['Networking Needs','Networking_Needs__c',data.hardware.networking],
+    ['GSO Instructions','GSO_Instructions__c',data.timeline.gsoInstructions],
+    ['Attention Items','Attention_Items__c',data.notes.attentionGSO]
   ];
+
+  var preview='<div style="font-size:13px;margin-bottom:12px;color:var(--gray-500)">';
+  if(sfIsConnected()){
+    preview+='<span style="color:var(--green);font-weight:600">✅ Connected to Salesforce</span> — The following fields will be synced:';
+  } else {
+    preview+='<span style="color:var(--yellow);font-weight:600">⚠️ Salesforce not connected</span> — Preview of fields that would be synced. <a href="#" onclick="sfConnect();return false;" style="color:var(--blue)">Connect now</a> or configure in ⚙️ Settings.';
+  }
+  preview+='</div>';
   preview+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
+  preview+='<tr style="background:var(--gray-50)"><th style="padding:8px;text-align:left;font-size:11px;color:var(--gray-500);text-transform:uppercase">Display Name</th><th style="padding:8px;text-align:left;font-size:11px;color:var(--gray-500);text-transform:uppercase">SF Field</th><th style="padding:8px;text-align:left;font-size:11px;color:var(--gray-500);text-transform:uppercase">Value</th></tr>';
   mappings.forEach(function(m){
-    preview+='<tr style="border-bottom:1px solid var(--gray-200)"><td style="padding:8px;font-weight:600;color:var(--gray-700)">'+m[0]+'</td><td style="padding:8px">'+esc(m[1]||'\u2014')+'</td></tr>';
+    var val = m[2];
+    var valDisplay = val ? esc(String(val)) : '<span style="color:var(--gray-400)">—</span>';
+    preview+='<tr style="border-bottom:1px solid var(--gray-200)"><td style="padding:8px;font-weight:600;color:var(--gray-700)">'+m[0]+'</td><td style="padding:8px;font-size:12px;color:var(--gray-400);font-family:monospace">'+m[1]+'</td><td style="padding:8px">'+valDisplay+'</td></tr>';
   });
   preview+='</table>';
   body.innerHTML=preview;
-  footer.innerHTML='<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="doSyncSF()">☁️ Sync Now</button>';
+
+  if(sfIsConnected()){
+    footer.innerHTML='<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="doSyncSF()">☁️ Sync Now</button>';
+  } else {
+    footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="sfConnect()">🔗 Connect Salesforce</button><button class="btn btn-primary" onclick="doSyncSF()">☁️ Sync Anyway (Demo)</button>';
+  }
   openModal();
 }
 
@@ -1249,12 +1423,178 @@ function doSyncSF(){
   var footer=document.getElementById('modalFooter');
   body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:rgba(0,106,255,.2);border-top-color:var(--blue);width:40px;height:40px;margin:0 auto 16px"></div><div style="color:var(--gray-500)">Syncing to Salesforce...</div></div>';
   footer.innerHTML='';
-  setTimeout(function(){
-    closeModal();
-    var now=new Date().toLocaleTimeString();
-    document.getElementById('sfLastSync').textContent='Last synced: '+now;
-    showToast('✅ Synced to Salesforce successfully','success');
-  },2000);
+
+  if(sfIsConnected()){
+    // REAL Salesforce API call — create or update Account
+    var accountPayload = {
+      Name: data.business.name || 'Unknown Business',
+      Type: data.business.type || '',
+      AnnualRevenue: data.business.revenue || '',
+      Description: 'Discovery completed by ' + (data.aeName||'AE') + ' on ' + (data.aeDate||'N/A') + '.\n\nPain Points: ' + (data.goals.painPoints||'') + '\n\nGSO Instructions: ' + (data.timeline.gsoInstructions||'')
+    };
+
+    // Search for existing account first
+    var query = "SELECT Id FROM Account WHERE Name = '" + (data.business.name||'').replace(/'/g,"\\'") + "' LIMIT 1";
+    sfApiCall('GET', '/services/data/v59.0/query/?q=' + encodeURIComponent(query))
+    .then(function(result){
+      if(result.records && result.records.length > 0){
+        // Update existing
+        var accountId = result.records[0].Id;
+        return sfApiCall('PATCH', '/services/data/v59.0/sobjects/Account/' + accountId, accountPayload)
+          .then(function(){ return {id: accountId, action: 'updated'}; });
+      } else {
+        // Create new
+        return sfApiCall('POST', '/services/data/v59.0/sobjects/Account', accountPayload)
+          .then(function(r){ return {id: r.id, action: 'created'}; });
+      }
+    })
+    .then(function(result){
+      closeModal();
+      var now=new Date().toLocaleTimeString();
+      document.getElementById('sfLastSync').textContent='Last synced: '+now;
+      updateSFStatus();
+      showToast('✅ Account '+result.action+' in Salesforce ('+result.id+')','success');
+    })
+    .catch(function(err){
+      body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Salesforce Sync Failed</strong><br><br>'+esc(err.message)+'<br><br><span style="font-size:12px;color:var(--gray-500)">Check your credentials in Settings (⚙️) or try reconnecting.</span></div>';
+      footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="sfConnect()">🔗 Reconnect</button>';
+    });
+  } else {
+    // Demo mode — simulate sync
+    setTimeout(function(){
+      closeModal();
+      var now=new Date().toLocaleTimeString();
+      document.getElementById('sfLastSync').textContent='Last synced: '+now+' (demo)';
+      showToast('✅ Demo sync complete — connect Salesforce in ⚙️ for real sync','info');
+    },1500);
+  }
+}
+
+function updateSFStatus(){
+  var dot = document.querySelector('.sf-dot');
+  var label = document.querySelector('.sf-label');
+  if(dot && label){
+    if(sfIsConnected()){
+      dot.style.background='var(--green)';
+      label.textContent='Salesforce Connected';
+    } else if(CONFIG.SF_CLIENT_ID){
+      dot.style.background='var(--yellow)';
+      label.textContent='Salesforce Configured (not connected)';
+    } else {
+      dot.style.background='var(--gray-400)';
+      label.textContent='Salesforce Not Configured';
+    }
+  }
+}
+
+// ===== SETTINGS PANEL =====
+function openSettings(){
+  var body=document.getElementById('modalBody');
+  var footer=document.getElementById('modalFooter');
+  document.getElementById('modalTitle').textContent='⚙️ Integration Settings';
+
+  var html='<div style="font-size:13px">';
+
+  // Slack Section
+  html+='<div style="margin-bottom:20px">';
+  html+='<h4 style="margin-bottom:8px;display:flex;align-items:center;gap:6px"><span style="font-size:18px">💬</span> Slack Integration</h4>';
+  html+='<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Send discovery handoffs directly to a Slack channel via Incoming Webhook.</div>';
+  html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Webhook URL</label>';
+  html+='<input type="text" id="cfgSlackWebhook" value="'+esc(CONFIG.SLACK_WEBHOOK_URL)+'" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);margin-bottom:8px">';
+  html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Channel Name (display only)</label>';
+  html+='<input type="text" id="cfgSlackChannel" value="'+esc(CONFIG.SLACK_CHANNEL_NAME)+'" placeholder="#onboarding-handoffs" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);margin-bottom:8px">';
+  html+='<div style="display:flex;align-items:center;gap:8px;margin-top:4px">';
+  html+='<label style="font-size:12px"><input type="checkbox" id="cfgSlackEnabled" '+(CONFIG.SLACK_ENABLED?'checked':'')+' style="margin-right:4px"> Enable real Slack sending</label>';
+  html+='<button class="btn" style="font-size:11px;padding:4px 10px" onclick="testSlack()">🧪 Test</button>';
+  html+='</div>';
+  html+='</div>';
+
+  // Salesforce Section
+  html+='<div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:20px">';
+  html+='<h4 style="margin-bottom:8px;display:flex;align-items:center;gap:6px"><span style="font-size:18px">☁️</span> Salesforce Integration</h4>';
+  html+='<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Connect to Salesforce to sync discovery data to Account/Opportunity records.</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
+  html+='<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Client ID</label>';
+  html+='<input type="text" id="cfgSFClientId" value="'+esc(CONFIG.SF_CLIENT_ID)+'" placeholder="3MVG9..." style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font)"></div>';
+  html+='<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Client Secret</label>';
+  html+='<input type="password" id="cfgSFClientSecret" value="'+esc(CONFIG.SF_CLIENT_SECRET)+'" placeholder="••••••••" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font)"></div>';
+  html+='</div>';
+  html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Login URL</label>';
+  html+='<select id="cfgSFLoginUrl" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);margin-bottom:8px;background:#fff">';
+  html+='<option value="https://login.salesforce.com"'+(CONFIG.SF_LOGIN_URL==='https://login.salesforce.com'?' selected':'')+'>Production (login.salesforce.com)</option>';
+  html+='<option value="https://test.salesforce.com"'+(CONFIG.SF_LOGIN_URL==='https://test.salesforce.com'?' selected':'')+'>Sandbox (test.salesforce.com)</option>';
+  html+='</select>';
+  html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Redirect URI</label>';
+  html+='<input type="text" id="cfgSFRedirect" value="'+esc(CONFIG.SF_REDIRECT_URI)+'" readonly style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);background:var(--gray-50);color:var(--gray-500);margin-bottom:8px">';
+
+  // Connection status
+  if(sfIsConnected()){
+    html+='<div style="padding:8px 12px;background:var(--green);color:#fff;border-radius:6px;font-size:12px;font-weight:600;margin-bottom:8px">✅ Connected to '+esc(CONFIG.SF_INSTANCE_URL)+'</div>';
+  } else if(CONFIG.SF_CLIENT_ID){
+    html+='<div style="padding:8px 12px;background:var(--yellow);color:#fff;border-radius:6px;font-size:12px;font-weight:600;margin-bottom:8px">⚠️ Configured but not connected — click Connect below</div>';
+  }
+
+  html+='<div style="display:flex;align-items:center;gap:8px;margin-top:4px">';
+  html+='<label style="font-size:12px"><input type="checkbox" id="cfgSFEnabled" '+(CONFIG.SF_ENABLED?'checked':'')+' style="margin-right:4px"> Enable Salesforce sync</label>';
+  html+='<button class="btn" style="font-size:11px;padding:4px 10px" onclick="saveSettingsAndConnect()">🔗 Connect</button>';
+  html+='</div>';
+  html+='</div>';
+
+  // Help
+  html+='<div style="border-top:1px solid var(--gray-200);padding-top:12px;font-size:11px;color:var(--gray-400)">';
+  html+='<strong>Setup Help:</strong><br>';
+  html+='• <strong>Slack:</strong> Create app at <a href="https://api.slack.com/apps" target="_blank" style="color:var(--blue)">api.slack.com/apps</a> → Incoming Webhooks → Add to channel<br>';
+  html+='• <strong>Salesforce:</strong> Setup → App Manager → New Connected App → Enable OAuth → Set redirect URI to: <code style="background:var(--gray-100);padding:2px 4px;border-radius:3px">'+esc(CONFIG.SF_REDIRECT_URI)+'</code>';
+  html+='</div>';
+
+  html+='</div>';
+  body.innerHTML=html;
+  footer.innerHTML='<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveSettings()">💾 Save Settings</button>';
+  openModal();
+}
+
+function saveSettings(){
+  CONFIG.SLACK_WEBHOOK_URL = document.getElementById('cfgSlackWebhook').value.trim();
+  CONFIG.SLACK_CHANNEL_NAME = document.getElementById('cfgSlackChannel').value.trim() || '#onboarding-handoffs';
+  CONFIG.SLACK_ENABLED = document.getElementById('cfgSlackEnabled').checked;
+  CONFIG.SF_CLIENT_ID = document.getElementById('cfgSFClientId').value.trim();
+  CONFIG.SF_CLIENT_SECRET = document.getElementById('cfgSFClientSecret').value.trim();
+  CONFIG.SF_LOGIN_URL = document.getElementById('cfgSFLoginUrl').value;
+  CONFIG.SF_ENABLED = document.getElementById('cfgSFEnabled').checked;
+  saveConfig();
+  updateSFStatus();
+  closeModal();
+  showToast('✅ Settings saved','success');
+}
+
+function saveSettingsAndConnect(){
+  saveSettings();
+  sfConnect();
+}
+
+function testSlack(){
+  var webhook = document.getElementById('cfgSlackWebhook').value.trim();
+  if(!webhook){
+    showToast('❌ Enter a webhook URL first','error');
+    return;
+  }
+  var testMsg = {
+    text: '🧪 *Test from AE Discovery Tool*\nIf you see this, the Slack integration is working! ✅',
+    blocks: [{ type:'section', text:{ type:'mrkdwn', text:'🧪 *Test from AE Discovery Tool*\nIf you see this, the Slack integration is working! ✅\n_Sent at '+new Date().toLocaleString()+'_' }}]
+  };
+  fetch(webhook, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(testMsg)
+  }).then(function(resp){
+    if(resp.ok){
+      showToast('✅ Test message sent to Slack!','success');
+    } else {
+      resp.text().then(function(t){ showToast('❌ Slack error: '+t,'error'); });
+    }
+  }).catch(function(err){
+    showToast('❌ Network error: '+err.message+' (CORS may block browser-direct webhooks)','error');
+  });
 }
 
 // SUBMIT FOR ONBOARDING
@@ -1372,10 +1712,93 @@ function getMissingRequired(){
 }
 
 function sendSlack(isIncomplete){
-  closeModal();
-  setTimeout(function(){
-    showToast(isIncomplete?'📤 Slack notification sent to #onboarding-handoffs':'\u2705 Discovery submitted to #onboarding-handoffs','success');
-  },300);
+  var slackContent = document.querySelector('.slack-content');
+  if(!slackContent) { closeModal(); return; }
+
+  // Build Slack Block Kit message
+  var blocks = buildSlackBlocks(isIncomplete);
+
+  if(CONFIG.SLACK_ENABLED && CONFIG.SLACK_WEBHOOK_URL){
+    // REAL Slack integration via webhook
+    var body = document.getElementById('modalBody');
+    var footer = document.getElementById('modalFooter');
+    body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:rgba(0,106,255,.2);border-top-color:var(--blue);width:40px;height:40px;margin:0 auto 16px"></div><div style="color:var(--gray-500)">Sending to '+esc(CONFIG.SLACK_CHANNEL_NAME)+'...</div></div>';
+    footer.innerHTML='';
+
+    fetch(CONFIG.SLACK_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(blocks)
+    }).then(function(resp){
+      if(resp.ok){
+        closeModal();
+        showToast(isIncomplete ? '📤 Slack alert sent to '+CONFIG.SLACK_CHANNEL_NAME+' — missing fields flagged' : '✅ Complete discovery sent to '+CONFIG.SLACK_CHANNEL_NAME, 'success');
+      } else {
+        resp.text().then(function(t){
+          body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Slack Error</strong><br><br>'+esc(t)+'<br><br><span style="font-size:12px;color:var(--gray-500)">Check your webhook URL in Settings (⚙️)</span></div>';
+          footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="openSettings()">⚙️ Settings</button>';
+        });
+      }
+    }).catch(function(err){
+      body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Network Error</strong><br><br>'+esc(err.message)+'<br><br><span style="font-size:12px;color:var(--gray-500)">Note: Slack webhooks may be blocked by CORS when called from a browser. Consider using a proxy or Slack app instead.</span></div>';
+      footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button>';
+    });
+  } else {
+    // No webhook configured — copy to clipboard and show instructions
+    closeModal();
+    var text = slackContent.innerText;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){
+        showToast('📋 Copied to clipboard — paste in '+CONFIG.SLACK_CHANNEL_NAME+(CONFIG.SLACK_WEBHOOK_URL?'':' (configure webhook in ⚙️ for auto-send)'),'info');
+      }).catch(function(){ fallbackCopy(text); });
+    } else { fallbackCopy(text); }
+  }
+}
+
+function buildSlackBlocks(isIncomplete){
+  var emoji = isIncomplete ? ':red_circle:' : ':white_check_mark:';
+  var status = isIncomplete ? 'INCOMPLETE DISCOVERY' : 'COMPLETE DISCOVERY';
+  var text = emoji+' *'+status+' — '+esc(data.business.name||'Unknown Business')+'*\n';
+  text += '*AE:* '+esc(data.aeName||'N/A')+' | *Date:* '+esc(data.aeDate||'N/A')+'\n';
+  text += '*Locations:* '+(data.business.locations||0)+' | *Type:* '+esc(data.business.type||'N/A')+'\n\n';
+
+  if(isIncomplete){
+    var missing = getMissingRequired();
+    text += ':no_entry: *Missing Required Fields:*\n';
+    var sectionGroups={};
+    missing.forEach(function(m){
+      if(!sectionGroups[m.section])sectionGroups[m.section]=[];
+      sectionGroups[m.section].push(m.field);
+    });
+    Object.keys(sectionGroups).forEach(function(sec){
+      text += '• *'+sec+':* '+sectionGroups[sec].join(', ')+'\n';
+    });
+    text += '\n:warning: _Action needed: Follow up with AE to complete discovery._\n';
+  } else {
+    text += '*Current POS:* '+esc(data.current.pos||'N/A')+'\n';
+    text += '*Square Product:* '+(data.technical.products||[]).join(', ')+' | '+esc(data.technical.tier||'')+'\n';
+    text += '*Go-Live:* '+esc(data.timeline.goLive||'TBD')+'\n';
+    text += '*Decision Maker:* '+esc(data.goals.decisionMaker.name||'N/A')+' ('+esc(data.goals.decisionMaker.role||'')+')'+'\n';
+    text += '*Day-to-Day Contact:* '+esc(data.goals.stakeholder.name||'N/A')+' ('+esc(data.goals.stakeholder.role||'')+')'+'\n';
+    var totals=calcHardwareTotals();
+    var hwItems=[];
+    Object.keys(totals).forEach(function(k){if(totals[k]>0)hwItems.push(k+': '+totals[k]);});
+    if(hwItems.length>0) text += '*Hardware:* '+hwItems.join(' | ')+'\n';
+  }
+
+  if(data.notes.attentionGSO){
+    text += '\n:rotating_light: *ATTENTION ITEMS FOR GSO:*\n'+data.notes.attentionGSO+'\n';
+  }
+  if(data.timeline.gsoInstructions){
+    text += '\n:warning: *GSO INSTRUCTIONS:*\n'+data.timeline.gsoInstructions+'\n';
+  }
+
+  return {
+    text: text,
+    blocks: [
+      { type:'section', text:{ type:'mrkdwn', text:text } }
+    ]
+  };
 }
 
 function copySlackText(){
@@ -1427,6 +1850,7 @@ document.addEventListener('DOMContentLoaded',function(){
   renderSidebar();
   renderContent();
   startAutoSave();
+  updateSFStatus();
   document.getElementById('modalOverlay').addEventListener('click',function(e){
     if(e.target===document.getElementById('modalOverlay'))closeModal();
   });
