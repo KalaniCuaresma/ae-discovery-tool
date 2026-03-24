@@ -1,0 +1,3 @@
+# No external dependencies needed — using stdlib only
+# urllib.request, json, os are all built-in
+functions-framework==3.*

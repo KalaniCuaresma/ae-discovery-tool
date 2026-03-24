@@ -411,23 +411,35 @@ Fields:
 
 <script>
 // ===== INTEGRATION CONFIG =====
-// These can be set via the Settings panel (gear icon) or directly here.
-// Values are persisted in localStorage under 'ae_discovery_config'.
+// Persisted in localStorage. Configure via ⚙️ Settings panel.
 var CONFIG = {
-  // Slack Incoming Webhook URL — create at https://api.slack.com/apps → Incoming Webhooks
+  // --- SLACK ---
+  // Option A: Slack Bot Token (recommended — works from browser)
+  //   1. Go to https://api.slack.com/apps → Create New App
+  //   2. Add Bot Token Scopes: chat:write, chat:write.public
+  //   3. Install to workspace → copy Bot User OAuth Token (xoxb-...)
+  SLACK_BOT_TOKEN: '',
+  SLACK_CHANNEL: '#onboarding-handoffs',  // channel name or ID
+  // Option B: Webhook URL (requires proxy server — CORS blocked from browser)
   SLACK_WEBHOOK_URL: '',
-  SLACK_CHANNEL_NAME: '#onboarding-handoffs',
 
-  // Salesforce Connected App — create in Setup → App Manager → New Connected App
+  // --- SALESFORCE ---
+  // Uses OAuth 2.0 User-Agent Flow (no server needed)
+  //   1. Salesforce Setup → App Manager → New Connected App
+  //   2. Enable OAuth → Add scopes: api, refresh_token, full
+  //   3. Set Callback URL to this page's URL
+  //   4. Under "Require Secret for Web Server Flow" → UNCHECK
+  //   5. Copy Consumer Key (Client ID)
   SF_CLIENT_ID: '',
-  SF_CLIENT_SECRET: '',
-  SF_REDIRECT_URI: window.location.origin + window.location.pathname,
   SF_LOGIN_URL: 'https://login.salesforce.com',
   SF_INSTANCE_URL: '',
   SF_ACCESS_TOKEN: '',
-  SF_REFRESH_TOKEN: '',
 
-  // Feature flags
+  // --- API PROXY (optional, for webhook mode) ---
+  // If you deploy the Cloud Function proxy, set its URL here
+  API_PROXY_URL: '',
+
+  // --- Feature flags ---
   SLACK_ENABLED: false,
   SF_ENABLED: false
 };
@@ -437,15 +449,32 @@ function loadConfig(){
     var saved = localStorage.getItem('ae_discovery_config');
     if(saved){
       var parsed = JSON.parse(saved);
-      Object.keys(parsed).forEach(function(k){ CONFIG[k] = parsed[k]; });
+      Object.keys(parsed).forEach(function(k){ if(k in CONFIG) CONFIG[k] = parsed[k]; });
     }
   } catch(e){}
-  // Check URL for Salesforce OAuth callback
-  var params = new URLSearchParams(window.location.search);
-  var code = params.get('code');
-  if(code && CONFIG.SF_CLIENT_ID){
-    exchangeSFToken(code);
+
+  // Check URL hash for Salesforce OAuth callback (User-Agent flow returns token in hash)
+  var hash = window.location.hash;
+  if(hash && hash.indexOf('access_token') > -1){
+    var params = new URLSearchParams(hash.substring(1));
+    var token = params.get('access_token');
+    var instanceUrl = params.get('instance_url');
+    if(token){
+      CONFIG.SF_ACCESS_TOKEN = token;
+      CONFIG.SF_INSTANCE_URL = decodeURIComponent(instanceUrl || '');
+      CONFIG.SF_ENABLED = true;
+      saveConfig();
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setTimeout(function(){ showToast('✅ Salesforce connected successfully!','success'); updateSFStatus(); }, 500);
+    }
+  }
+
+  // Also check for error in hash
+  if(hash && hash.indexOf('error=') > -1){
+    var errParams = new URLSearchParams(hash.substring(1));
+    var errDesc = errParams.get('error_description') || errParams.get('error') || 'Unknown error';
     window.history.replaceState({}, document.title, window.location.pathname);
+    setTimeout(function(){ showToast('❌ Salesforce auth failed: ' + decodeURIComponent(errDesc),'error'); }, 500);
   }
 }
 
@@ -1274,74 +1303,61 @@ function sfConnect(){
     openSettings();
     return;
   }
-  // OAuth 2.0 Authorization Code Flow
+  // OAuth 2.0 User-Agent Flow (no server/secret needed)
+  // Returns access_token directly in URL hash fragment
+  var redirectUri = window.location.origin + window.location.pathname;
   var authUrl = CONFIG.SF_LOGIN_URL + '/services/oauth2/authorize'
-    + '?response_type=code'
+    + '?response_type=token'
     + '&client_id=' + encodeURIComponent(CONFIG.SF_CLIENT_ID)
-    + '&redirect_uri=' + encodeURIComponent(CONFIG.SF_REDIRECT_URI)
-    + '&scope=' + encodeURIComponent('api refresh_token')
-    + '&prompt=consent';
+    + '&redirect_uri=' + encodeURIComponent(redirectUri)
+    + '&scope=' + encodeURIComponent('api full')
+    + '&display=popup'
+    + '&prompt=login consent';
   window.location.href = authUrl;
 }
 
-function exchangeSFToken(code){
-  var tokenUrl = CONFIG.SF_LOGIN_URL + '/services/oauth2/token';
-  var body = 'grant_type=authorization_code'
-    + '&code=' + encodeURIComponent(code)
-    + '&client_id=' + encodeURIComponent(CONFIG.SF_CLIENT_ID)
-    + '&client_secret=' + encodeURIComponent(CONFIG.SF_CLIENT_SECRET)
-    + '&redirect_uri=' + encodeURIComponent(CONFIG.SF_REDIRECT_URI);
-
-  fetch(tokenUrl, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: body
-  }).then(function(resp){ return resp.json(); })
-  .then(function(json){
-    if(json.access_token){
-      CONFIG.SF_ACCESS_TOKEN = json.access_token;
-      CONFIG.SF_REFRESH_TOKEN = json.refresh_token || '';
-      CONFIG.SF_INSTANCE_URL = json.instance_url || '';
-      CONFIG.SF_ENABLED = true;
-      saveConfig();
-      updateSFStatus();
-      showToast('✅ Connected to Salesforce!','success');
-    } else {
-      showToast('❌ Salesforce auth failed: '+(json.error_description||json.error||'Unknown error'),'error');
-    }
-  }).catch(function(err){
-    showToast('❌ Salesforce token exchange failed: '+err.message,'error');
-  });
+function sfDisconnect(){
+  CONFIG.SF_ACCESS_TOKEN = '';
+  CONFIG.SF_INSTANCE_URL = '';
+  CONFIG.SF_ENABLED = false;
+  saveConfig();
+  updateSFStatus();
+  showToast('Salesforce disconnected','info');
 }
 
-function sfRefreshToken(){
-  if(!CONFIG.SF_REFRESH_TOKEN) return Promise.reject(new Error('No refresh token'));
-  var tokenUrl = CONFIG.SF_LOGIN_URL + '/services/oauth2/token';
-  var body = 'grant_type=refresh_token'
-    + '&refresh_token=' + encodeURIComponent(CONFIG.SF_REFRESH_TOKEN)
-    + '&client_id=' + encodeURIComponent(CONFIG.SF_CLIENT_ID)
-    + '&client_secret=' + encodeURIComponent(CONFIG.SF_CLIENT_SECRET);
-
-  return fetch(tokenUrl, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: body
-  }).then(function(resp){ return resp.json(); })
-  .then(function(json){
-    if(json.access_token){
-      CONFIG.SF_ACCESS_TOKEN = json.access_token;
-      if(json.instance_url) CONFIG.SF_INSTANCE_URL = json.instance_url;
-      saveConfig();
-      return true;
-    }
-    throw new Error(json.error_description||'Refresh failed');
-  });
-}
-
-function sfApiCall(method, path, payload, retried){
+function sfApiCall(method, path, payload){
   if(!sfIsConnected()){
     return Promise.reject(new Error('Not connected to Salesforce'));
   }
+
+  // If we have a proxy URL, route through it (avoids CORS)
+  if(CONFIG.API_PROXY_URL){
+    return fetch(CONFIG.API_PROXY_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        action: 'sf_api',
+        instance_url: CONFIG.SF_INSTANCE_URL,
+        access_token: CONFIG.SF_ACCESS_TOKEN,
+        method: method,
+        endpoint: path,
+        body: payload || null
+      })
+    }).then(function(resp){ return resp.json(); })
+    .then(function(json){
+      if(json.ok) return json.data;
+      if(json.needs_refresh){
+        CONFIG.SF_ACCESS_TOKEN = '';
+        CONFIG.SF_ENABLED = false;
+        saveConfig();
+        updateSFStatus();
+        throw new Error('Session expired — please reconnect Salesforce in ⚙️ Settings');
+      }
+      throw new Error(json.error || 'Salesforce API error');
+    });
+  }
+
+  // Direct API call (works if Salesforce CORS is configured for this origin)
   var url = CONFIG.SF_INSTANCE_URL + path;
   var opts = {
     method: method,
@@ -1353,15 +1369,17 @@ function sfApiCall(method, path, payload, retried){
   if(payload) opts.body = JSON.stringify(payload);
 
   return fetch(url, opts).then(function(resp){
-    if(resp.status === 401 && !retried){
-      // Token expired — try refresh
-      return sfRefreshToken().then(function(){
-        return sfApiCall(method, path, payload, true);
-      });
+    if(resp.status === 401){
+      CONFIG.SF_ACCESS_TOKEN = '';
+      CONFIG.SF_ENABLED = false;
+      saveConfig();
+      updateSFStatus();
+      throw new Error('Session expired — please reconnect Salesforce in ⚙️ Settings');
     }
     if(!resp.ok){
-      return resp.json().then(function(err){
-        throw new Error((err[0]&&err[0].message)||'Salesforce API error: '+resp.status);
+      return resp.text().then(function(t){
+        try { var err = JSON.parse(t); throw new Error((err[0]&&err[0].message)||'Salesforce API error: '+resp.status); }
+        catch(e){ if(e.message.indexOf('Salesforce')>-1) throw e; throw new Error('Salesforce API error ('+resp.status+'): '+t.substring(0,200)); }
       });
     }
     if(resp.status === 204) return {};
@@ -1492,59 +1510,94 @@ function openSettings(){
   var body=document.getElementById('modalBody');
   var footer=document.getElementById('modalFooter');
   document.getElementById('modalTitle').textContent='⚙️ Integration Settings';
+  var redirectUri = window.location.origin + window.location.pathname;
 
   var html='<div style="font-size:13px">';
 
-  // Slack Section
+  // ===== SLACK SECTION =====
   html+='<div style="margin-bottom:20px">';
-  html+='<h4 style="margin-bottom:8px;display:flex;align-items:center;gap:6px"><span style="font-size:18px">💬</span> Slack Integration</h4>';
-  html+='<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Send discovery handoffs directly to a Slack channel via Incoming Webhook.</div>';
-  html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Webhook URL</label>';
-  html+='<input type="text" id="cfgSlackWebhook" value="'+esc(CONFIG.SLACK_WEBHOOK_URL)+'" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);margin-bottom:8px">';
-  html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Channel Name (display only)</label>';
-  html+='<input type="text" id="cfgSlackChannel" value="'+esc(CONFIG.SLACK_CHANNEL_NAME)+'" placeholder="#onboarding-handoffs" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);margin-bottom:8px">';
-  html+='<div style="display:flex;align-items:center;gap:8px;margin-top:4px">';
-  html+='<label style="font-size:12px"><input type="checkbox" id="cfgSlackEnabled" '+(CONFIG.SLACK_ENABLED?'checked':'')+' style="margin-right:4px"> Enable real Slack sending</label>';
+  html+='<h4 style="margin-bottom:4px;display:flex;align-items:center;gap:6px"><span style="font-size:18px">💬</span> Slack Integration</h4>';
+  html+='<div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">Auto-send discovery handoffs to a Slack channel when submitting for onboarding.</div>';
+
+  // Bot Token (recommended)
+  html+='<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-bottom:10px">';
+  html+='<label style="font-size:12px;font-weight:600;display:flex;align-items:center;gap:4px;margin-bottom:6px">🤖 Bot Token <span style="font-size:10px;background:var(--green);color:#fff;padding:1px 6px;border-radius:10px">Recommended</span></label>';
+  html+='<div style="font-size:11px;color:var(--gray-400);margin-bottom:6px">Works directly from browser. No proxy needed.</div>';
+  html+='<input type="password" id="cfgSlackBot" value="'+esc(CONFIG.SLACK_BOT_TOKEN)+'" placeholder="xoxb-your-bot-token-here" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);margin-bottom:6px">';
+  html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Channel</label>';
+  html+='<input type="text" id="cfgSlackChannel" value="'+esc(CONFIG.SLACK_CHANNEL)+'" placeholder="#onboarding-handoffs or C0123456789" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font)">';
+  html+='</div>';
+
+  // Webhook (alternative)
+  html+='<details style="margin-bottom:8px"><summary style="font-size:12px;color:var(--gray-500);cursor:pointer">Alternative: Incoming Webhook (requires proxy for CORS)</summary>';
+  html+='<div style="padding:8px 0">';
+  html+='<input type="text" id="cfgSlackWebhook" value="'+esc(CONFIG.SLACK_WEBHOOK_URL)+'" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font)">';
+  html+='</div></details>';
+
+  html+='<div style="display:flex;align-items:center;gap:8px;margin-top:6px">';
+  html+='<label style="font-size:12px"><input type="checkbox" id="cfgSlackEnabled" '+(CONFIG.SLACK_ENABLED?'checked':'')+' style="margin-right:4px"> Enable Slack integration</label>';
   html+='<button class="btn" style="font-size:11px;padding:4px 10px" onclick="testSlack()">🧪 Test</button>';
   html+='</div>';
   html+='</div>';
 
-  // Salesforce Section
+  // ===== SALESFORCE SECTION =====
   html+='<div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:20px">';
-  html+='<h4 style="margin-bottom:8px;display:flex;align-items:center;gap:6px"><span style="font-size:18px">☁️</span> Salesforce Integration</h4>';
-  html+='<div style="font-size:12px;color:var(--gray-500);margin-bottom:10px">Connect to Salesforce to sync discovery data to Account/Opportunity records.</div>';
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">';
-  html+='<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Client ID</label>';
-  html+='<input type="text" id="cfgSFClientId" value="'+esc(CONFIG.SF_CLIENT_ID)+'" placeholder="3MVG9..." style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font)"></div>';
-  html+='<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Client Secret</label>';
-  html+='<input type="password" id="cfgSFClientSecret" value="'+esc(CONFIG.SF_CLIENT_SECRET)+'" placeholder="••••••••" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font)"></div>';
-  html+='</div>';
+  html+='<h4 style="margin-bottom:4px;display:flex;align-items:center;gap:6px"><span style="font-size:18px">☁️</span> Salesforce Integration</h4>';
+  html+='<div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">Sync discovery data to Salesforce Account records. Uses OAuth User-Agent flow (no server needed).</div>';
+
+  html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Consumer Key (Client ID)</label>';
+  html+='<input type="text" id="cfgSFClientId" value="'+esc(CONFIG.SF_CLIENT_ID)+'" placeholder="3MVG9..." style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);margin-bottom:8px">';
+
   html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Login URL</label>';
   html+='<select id="cfgSFLoginUrl" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);margin-bottom:8px;background:#fff">';
   html+='<option value="https://login.salesforce.com"'+(CONFIG.SF_LOGIN_URL==='https://login.salesforce.com'?' selected':'')+'>Production (login.salesforce.com)</option>';
   html+='<option value="https://test.salesforce.com"'+(CONFIG.SF_LOGIN_URL==='https://test.salesforce.com'?' selected':'')+'>Sandbox (test.salesforce.com)</option>';
   html+='</select>';
-  html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Redirect URI</label>';
-  html+='<input type="text" id="cfgSFRedirect" value="'+esc(CONFIG.SF_REDIRECT_URI)+'" readonly style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);background:var(--gray-50);color:var(--gray-500);margin-bottom:8px">';
+
+  html+='<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Callback URL <span style="font-size:10px;color:var(--gray-400)">(add this to your Connected App)</span></label>';
+  html+='<div style="display:flex;gap:6px;margin-bottom:8px"><input type="text" id="cfgSFRedirect" value="'+esc(redirectUri)+'" readonly style="flex:1;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:12px;font-family:monospace;background:var(--gray-50);color:var(--gray-500)"><button class="btn" style="font-size:11px;padding:4px 8px" onclick="navigator.clipboard.writeText(document.getElementById(\'cfgSFRedirect\').value);showToast(\'📋 Copied!\',\'success\')">📋</button></div>';
 
   // Connection status
   if(sfIsConnected()){
-    html+='<div style="padding:8px 12px;background:var(--green);color:#fff;border-radius:6px;font-size:12px;font-weight:600;margin-bottom:8px">✅ Connected to '+esc(CONFIG.SF_INSTANCE_URL)+'</div>';
+    html+='<div style="padding:10px 12px;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:6px;font-size:12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">';
+    html+='<span style="color:#065F46;font-weight:600">✅ Connected to '+esc(CONFIG.SF_INSTANCE_URL)+'</span>';
+    html+='<button class="btn" style="font-size:10px;padding:2px 8px;color:var(--red);border-color:var(--red)" onclick="sfDisconnect();openSettings()">Disconnect</button>';
+    html+='</div>';
   } else if(CONFIG.SF_CLIENT_ID){
-    html+='<div style="padding:8px 12px;background:var(--yellow);color:#fff;border-radius:6px;font-size:12px;font-weight:600;margin-bottom:8px">⚠️ Configured but not connected — click Connect below</div>';
+    html+='<div style="padding:10px 12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;font-size:12px;font-weight:600;color:#92400E;margin-bottom:8px">⚠️ Configured but not connected — save settings then click Connect</div>';
+  } else {
+    html+='<div style="padding:10px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;font-size:12px;color:var(--gray-500);margin-bottom:8px">Enter your Consumer Key above, save, then click Connect to authorize.</div>';
   }
 
   html+='<div style="display:flex;align-items:center;gap:8px;margin-top:4px">';
   html+='<label style="font-size:12px"><input type="checkbox" id="cfgSFEnabled" '+(CONFIG.SF_ENABLED?'checked':'')+' style="margin-right:4px"> Enable Salesforce sync</label>';
-  html+='<button class="btn" style="font-size:11px;padding:4px 10px" onclick="saveSettingsAndConnect()">🔗 Connect</button>';
+  if(!sfIsConnected()){
+    html+='<button class="btn" style="font-size:11px;padding:4px 10px" onclick="saveSettingsAndConnect()">🔗 Save & Connect</button>';
+  }
   html+='</div>';
   html+='</div>';
 
-  // Help
+  // ===== PROXY (optional) =====
+  html+='<details style="border-top:1px solid var(--gray-200);padding-top:12px;margin-bottom:16px"><summary style="font-size:12px;color:var(--gray-500);cursor:pointer">Advanced: API Proxy URL (optional)</summary>';
+  html+='<div style="padding:8px 0;font-size:12px;color:var(--gray-400);margin-bottom:6px">If you deploy the Cloud Function proxy, enter its URL here. This routes Slack webhook and Salesforce API calls through your proxy to avoid CORS issues.</div>';
+  html+='<input type="text" id="cfgProxyUrl" value="'+esc(CONFIG.API_PROXY_URL)+'" placeholder="https://us-central1-yourproject.cloudfunctions.net/ae-discovery-api" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font)">';
+  html+='</details>';
+
+  // ===== SETUP HELP =====
   html+='<div style="border-top:1px solid var(--gray-200);padding-top:12px;font-size:11px;color:var(--gray-400)">';
-  html+='<strong>Setup Help:</strong><br>';
-  html+='• <strong>Slack:</strong> Create app at <a href="https://api.slack.com/apps" target="_blank" style="color:var(--blue)">api.slack.com/apps</a> → Incoming Webhooks → Add to channel<br>';
-  html+='• <strong>Salesforce:</strong> Setup → App Manager → New Connected App → Enable OAuth → Set redirect URI to: <code style="background:var(--gray-100);padding:2px 4px;border-radius:3px">'+esc(CONFIG.SF_REDIRECT_URI)+'</code>';
+  html+='<strong>📖 Setup Guide:</strong><br><br>';
+  html+='<strong>Slack Bot Token:</strong><br>';
+  html+='1. Go to <a href="https://api.slack.com/apps" target="_blank" style="color:var(--blue)">api.slack.com/apps</a> → Create New App → From Scratch<br>';
+  html+='2. Go to <strong>OAuth & Permissions</strong> → Add Bot Token Scopes: <code style="background:var(--gray-100);padding:1px 4px;border-radius:3px">chat:write</code> and <code style="background:var(--gray-100);padding:1px 4px;border-radius:3px">chat:write.public</code><br>';
+  html+='3. Click <strong>Install to Workspace</strong> → Copy the <strong>Bot User OAuth Token</strong> (starts with xoxb-)<br>';
+  html+='4. Paste the token above and set the channel name<br><br>';
+  html+='<strong>Salesforce Connected App:</strong><br>';
+  html+='1. Salesforce → <strong>Setup → App Manager → New Connected App</strong><br>';
+  html+='2. Enable OAuth Settings → Add callback URL: <code style="background:var(--gray-100);padding:1px 4px;border-radius:3px">'+esc(redirectUri)+'</code><br>';
+  html+='3. Add scopes: <code style="background:var(--gray-100);padding:1px 4px;border-radius:3px">Manage user data via APIs (api)</code> and <code style="background:var(--gray-100);padding:1px 4px;border-radius:3px">Perform requests at any time (refresh_token, offline_access)</code><br>';
+  html+='4. ⚠️ <strong>Uncheck</strong> "Require Secret for Web Server Flow" and "Require Secret for Refresh Token Flow"<br>';
+  html+='5. Save → Copy <strong>Consumer Key</strong> → Paste above<br>';
+  html+='6. Note: It may take 2-10 minutes for Salesforce to activate the Connected App after creation';
   html+='</div>';
 
   html+='</div>';
@@ -1554,13 +1607,16 @@ function openSettings(){
 }
 
 function saveSettings(){
-  CONFIG.SLACK_WEBHOOK_URL = document.getElementById('cfgSlackWebhook').value.trim();
-  CONFIG.SLACK_CHANNEL_NAME = document.getElementById('cfgSlackChannel').value.trim() || '#onboarding-handoffs';
+  CONFIG.SLACK_BOT_TOKEN = document.getElementById('cfgSlackBot').value.trim();
+  CONFIG.SLACK_CHANNEL = document.getElementById('cfgSlackChannel').value.trim() || '#onboarding-handoffs';
+  var webhookEl = document.getElementById('cfgSlackWebhook');
+  CONFIG.SLACK_WEBHOOK_URL = webhookEl ? webhookEl.value.trim() : CONFIG.SLACK_WEBHOOK_URL;
   CONFIG.SLACK_ENABLED = document.getElementById('cfgSlackEnabled').checked;
   CONFIG.SF_CLIENT_ID = document.getElementById('cfgSFClientId').value.trim();
-  CONFIG.SF_CLIENT_SECRET = document.getElementById('cfgSFClientSecret').value.trim();
   CONFIG.SF_LOGIN_URL = document.getElementById('cfgSFLoginUrl').value;
   CONFIG.SF_ENABLED = document.getElementById('cfgSFEnabled').checked;
+  var proxyEl = document.getElementById('cfgProxyUrl');
+  CONFIG.API_PROXY_URL = proxyEl ? proxyEl.value.trim() : CONFIG.API_PROXY_URL;
   saveConfig();
   updateSFStatus();
   closeModal();
@@ -1568,27 +1624,65 @@ function saveSettings(){
 }
 
 function saveSettingsAndConnect(){
-  saveSettings();
+  CONFIG.SLACK_BOT_TOKEN = document.getElementById('cfgSlackBot').value.trim();
+  CONFIG.SLACK_CHANNEL = document.getElementById('cfgSlackChannel').value.trim() || '#onboarding-handoffs';
+  var webhookEl = document.getElementById('cfgSlackWebhook');
+  CONFIG.SLACK_WEBHOOK_URL = webhookEl ? webhookEl.value.trim() : CONFIG.SLACK_WEBHOOK_URL;
+  CONFIG.SLACK_ENABLED = document.getElementById('cfgSlackEnabled').checked;
+  CONFIG.SF_CLIENT_ID = document.getElementById('cfgSFClientId').value.trim();
+  CONFIG.SF_LOGIN_URL = document.getElementById('cfgSFLoginUrl').value;
+  CONFIG.SF_ENABLED = document.getElementById('cfgSFEnabled').checked;
+  var proxyEl = document.getElementById('cfgProxyUrl');
+  CONFIG.API_PROXY_URL = proxyEl ? proxyEl.value.trim() : CONFIG.API_PROXY_URL;
+  saveConfig();
+  updateSFStatus();
+  closeModal();
   sfConnect();
 }
 
 function testSlack(){
-  var webhook = document.getElementById('cfgSlackWebhook').value.trim();
-  if(!webhook){
-    showToast('❌ Enter a webhook URL first','error');
-    return;
-  }
-  var testMsg = {
-    text: '🧪 *Test from AE Discovery Tool*\nIf you see this, the Slack integration is working! ✅',
-    blocks: [{ type:'section', text:{ type:'mrkdwn', text:'🧪 *Test from AE Discovery Tool*\nIf you see this, the Slack integration is working! ✅\n_Sent at '+new Date().toLocaleString()+'_' }}]
-  };
-  fetch(webhook, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(testMsg)
-  }).then(function(resp){
-    if(resp.ok){
-      showToast('✅ Test message sent to Slack!','success');
+  // Determine which method to use
+  var botToken = document.getElementById('cfgSlackBot').value.trim();
+  var channel = document.getElementById('cfgSlackChannel').value.trim() || '#onboarding-handoffs';
+  var webhookEl = document.getElementById('cfgSlackWebhook');
+  var webhook = webhookEl ? webhookEl.value.trim() : '';
+
+  if(botToken){
+    // Use Slack Web API with Bot Token
+    var testMsg = '🧪 *Test from AE Discovery Tool*\nIf you see this, the Slack integration is working! ✅\n_Sent at '+new Date().toLocaleString()+'_';
+    fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + botToken,
+        'Content-Type': 'application/json; charset=utf-8'
+      },
+      body: JSON.stringify({
+        channel: channel,
+        text: testMsg,
+        mrkdwn: true
+      })
+    }).then(function(resp){ return resp.json(); })
+    .then(function(json){
+      if(json.ok){
+        showToast('✅ Test message sent to '+channel+'!','success');
+      } else {
+        showToast('❌ Slack error: '+json.error+(json.error==='not_in_channel'?' — invite the bot to the channel first':'')+(json.error==='channel_not_found'?' — use channel ID (C...) or add chat:write.public scope':''),'error');
+      }
+    }).catch(function(err){
+      showToast('❌ Network error: '+err.message,'error');
+    });
+  } else if(webhook){
+    // Use webhook (may hit CORS)
+    var testPayload = {
+      text: '🧪 *Test from AE Discovery Tool*\nIf you see this, the Slack integration is working! ✅'
+    };
+    fetch(webhook, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(testPayload)
+    }).then(function(resp){
+      if(resp.ok){
+        showToast('✅ Test message sent to Slack!','success');
     } else {
       resp.text().then(function(t){ showToast('❌ Slack error: '+t,'error'); });
     }
@@ -1715,41 +1809,87 @@ function sendSlack(isIncomplete){
   var slackContent = document.querySelector('.slack-content');
   if(!slackContent) { closeModal(); return; }
 
-  // Build Slack Block Kit message
-  var blocks = buildSlackBlocks(isIncomplete);
+  // Build Slack message
+  var slackMsg = buildSlackBlocks(isIncomplete);
+  var hasBot = CONFIG.SLACK_ENABLED && CONFIG.SLACK_BOT_TOKEN;
+  var hasWebhook = CONFIG.SLACK_ENABLED && CONFIG.SLACK_WEBHOOK_URL;
+  var hasProxy = CONFIG.API_PROXY_URL && CONFIG.SLACK_WEBHOOK_URL;
 
-  if(CONFIG.SLACK_ENABLED && CONFIG.SLACK_WEBHOOK_URL){
-    // REAL Slack integration via webhook
+  if(hasBot){
+    // ===== REAL Slack via Bot Token (recommended, no CORS issues) =====
     var body = document.getElementById('modalBody');
     var footer = document.getElementById('modalFooter');
-    body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:rgba(0,106,255,.2);border-top-color:var(--blue);width:40px;height:40px;margin:0 auto 16px"></div><div style="color:var(--gray-500)">Sending to '+esc(CONFIG.SLACK_CHANNEL_NAME)+'...</div></div>';
+    body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:rgba(0,106,255,.2);border-top-color:var(--blue);width:40px;height:40px;margin:0 auto 16px"></div><div style="color:var(--gray-500)">Sending to '+esc(CONFIG.SLACK_CHANNEL)+'...</div></div>';
     footer.innerHTML='';
 
-    fetch(CONFIG.SLACK_WEBHOOK_URL, {
+    fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(blocks)
-    }).then(function(resp){
-      if(resp.ok){
+      headers: {
+        'Authorization': 'Bearer ' + CONFIG.SLACK_BOT_TOKEN,
+        'Content-Type': 'application/json; charset=utf-8'
+      },
+      body: JSON.stringify({
+        channel: CONFIG.SLACK_CHANNEL,
+        text: slackMsg.text,
+        blocks: slackMsg.blocks,
+        mrkdwn: true,
+        unfurl_links: false
+      })
+    }).then(function(resp){ return resp.json(); })
+    .then(function(json){
+      if(json.ok){
         closeModal();
-        showToast(isIncomplete ? '📤 Slack alert sent to '+CONFIG.SLACK_CHANNEL_NAME+' — missing fields flagged' : '✅ Complete discovery sent to '+CONFIG.SLACK_CHANNEL_NAME, 'success');
+        showToast(isIncomplete ? '📤 Alert sent to '+CONFIG.SLACK_CHANNEL+' — missing fields flagged' : '✅ Complete discovery sent to '+CONFIG.SLACK_CHANNEL, 'success');
       } else {
-        resp.text().then(function(t){
-          body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Slack Error</strong><br><br>'+esc(t)+'<br><br><span style="font-size:12px;color:var(--gray-500)">Check your webhook URL in Settings (⚙️)</span></div>';
-          footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="openSettings()">⚙️ Settings</button>';
-        });
+        var errMsg = json.error || 'Unknown error';
+        var hint = '';
+        if(errMsg === 'not_in_channel') hint = 'Invite the bot to '+CONFIG.SLACK_CHANNEL+' first, or add chat:write.public scope.';
+        else if(errMsg === 'channel_not_found') hint = 'Channel not found. Use the channel ID (starts with C) or ensure the name is correct.';
+        else if(errMsg === 'invalid_auth') hint = 'Bot token is invalid. Check your token in ⚙️ Settings.';
+        body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Slack Error: '+esc(errMsg)+'</strong>'+(hint?'<br><br><span style="font-size:12px;color:var(--gray-500)">'+esc(hint)+'</span>':'')+'</div>';
+        footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button><button class="btn" onclick="openSettings()">⚙️ Settings</button>';
       }
     }).catch(function(err){
-      body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Network Error</strong><br><br>'+esc(err.message)+'<br><br><span style="font-size:12px;color:var(--gray-500)">Note: Slack webhooks may be blocked by CORS when called from a browser. Consider using a proxy or Slack app instead.</span></div>';
+      body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Network Error</strong><br><br>'+esc(err.message)+'</div>';
       footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button>';
     });
+
+  } else if(hasProxy){
+    // ===== Webhook via proxy =====
+    var body = document.getElementById('modalBody');
+    var footer = document.getElementById('modalFooter');
+    body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:rgba(0,106,255,.2);border-top-color:var(--blue);width:40px;height:40px;margin:0 auto 16px"></div><div style="color:var(--gray-500)">Sending via proxy...</div></div>';
+    footer.innerHTML='';
+
+    fetch(CONFIG.API_PROXY_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        action: 'slack',
+        webhook_url: CONFIG.SLACK_WEBHOOK_URL,
+        payload: slackMsg
+      })
+    }).then(function(resp){ return resp.json(); })
+    .then(function(json){
+      if(json.ok){
+        closeModal();
+        showToast(isIncomplete ? '📤 Alert sent to '+CONFIG.SLACK_CHANNEL : '✅ Discovery sent to '+CONFIG.SLACK_CHANNEL, 'success');
+      } else {
+        body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Error: '+esc(json.error||'Unknown')+'</strong></div>';
+        footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button>';
+      }
+    }).catch(function(err){
+      body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Proxy Error: '+esc(err.message)+'</strong></div>';
+      footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button>';
+    });
+
   } else {
-    // No webhook configured — copy to clipboard and show instructions
+    // ===== No integration configured — copy to clipboard =====
     closeModal();
     var text = slackContent.innerText;
     if(navigator.clipboard&&navigator.clipboard.writeText){
       navigator.clipboard.writeText(text).then(function(){
-        showToast('📋 Copied to clipboard — paste in '+CONFIG.SLACK_CHANNEL_NAME+(CONFIG.SLACK_WEBHOOK_URL?'':' (configure webhook in ⚙️ for auto-send)'),'info');
+        showToast('📋 Copied to clipboard — paste in '+CONFIG.SLACK_CHANNEL+(CONFIG.SLACK_BOT_TOKEN?'':' (configure Slack in ⚙️ for auto-send)'),'info');
       }).catch(function(){ fallbackCopy(text); });
     } else { fallbackCopy(text); }
   }
