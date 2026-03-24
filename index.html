@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AE Discovery Tool</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--navy:#1B2559;--navy-light:#243272;--blue:#006AFF;--blue-hover:#0055CC;--green:#22C55E;--yellow:#EAB308;--red:#EF4444;--orange:#F59E0B;--orange-hover:#D97706;--gray-50:#F9FAFB;--gray-100:#F3F4F6;--gray-200:#E5E7EB;--gray-300:#D1D5DB;--gray-400:#9CA3AF;--gray-500:#6B7280;--gray-700:#374151;--gray-900:#111827;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+html,body{height:100%;overflow:hidden;font-family:var(--font);font-size:14px;color:var(--gray-900);background:#f0f2f5}
+.app{display:flex;height:100vh;width:100%}
+.sidebar{width:260px;min-width:260px;background:var(--navy);color:#fff;display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;flex-shrink:0;position:relative;z-index:10}
+.sidebar::-webkit-scrollbar{width:6px}
+.sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:3px}
+.sidebar-header{padding:20px 16px 12px;border-bottom:1px solid rgba(255,255,255,.1)}
+.sidebar-title{font-size:18px;font-weight:700;margin-bottom:12px}
+.progress-label{font-size:11px;color:rgba(255,255,255,.7);margin-bottom:4px;display:flex;justify-content:space-between}
+.progress-bar{height:8px;background:rgba(255,255,255,.15);border-radius:4px;overflow:hidden}
+.progress-fill{height:100%;background:var(--green);border-radius:4px;transition:width .4s ease}
+.sidebar-nav{flex:1;padding:8px 0}
+.nav-item{display:flex;align-items:center;padding:10px 16px;cursor:pointer;transition:background .15s;font-size:13px;gap:8px;border-left:3px solid transparent}
+.nav-item:hover{background:rgba(255,255,255,.08)}
+.nav-item.active{background:rgba(255,255,255,.12);border-left-color:var(--blue)}
+.nav-item .nav-num{font-size:11px;color:rgba(255,255,255,.5);min-width:18px}
+.nav-item .nav-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav-item .nav-badge{font-size:12px}
+.sidebar-footer{padding:12px 16px;border-top:1px solid rgba(255,255,255,.1);font-size:12px}
+.sf-status{display:flex;align-items:center;gap:6px;color:rgba(255,255,255,.7);margin-bottom:4px;font-size:11px}
+.sf-status .dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block}
+.sf-last-sync{font-size:10px;color:rgba(255,255,255,.5);margin-bottom:10px}
+.sidebar-btn{width:100%;padding:9px 12px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#fff;border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--font);margin-bottom:6px;transition:background .15s}
+.sidebar-btn:hover{background:rgba(255,255,255,.1)}
+.sidebar-btn.primary{background:var(--blue);border-color:var(--blue)}
+.sidebar-btn.primary:hover{background:var(--blue-hover)}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.topbar{height:56px;min-height:56px;background:#fff;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;padding:0 20px;gap:16px;flex-shrink:0}
+.topbar-opp{font-weight:600;font-size:14px;color:var(--gray-700);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}
+.topbar-center{display:flex;align-items:center;gap:10px;flex:1;justify-content:center}
+.topbar-center label{font-size:12px;color:var(--gray-500)}
+.topbar-center input{height:32px;padding:0 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);background:var(--gray-50)}
+.topbar-center input[type="text"]{width:160px}
+.topbar-center input[type="date"]{width:140px}
+.topbar-right{display:flex;gap:8px;align-items:center}
+.topbar-right .last-saved{font-size:10px;color:var(--gray-400);white-space:nowrap}
+.btn{padding:7px 14px;border-radius:8px;font-size:13px;font-family:var(--font);cursor:pointer;border:1px solid var(--gray-200);background:#fff;color:var(--gray-700);transition:all .15s;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.btn:hover{background:var(--gray-50);border-color:var(--gray-300)}
+.btn-primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn-primary:hover{background:var(--blue-hover)}
+.btn-danger{background:var(--red);color:#fff;border-color:var(--red)}
+.btn-danger:hover{background:#dc2626}
+.btn-orange{background:var(--orange);color:#fff;border-color:var(--orange);font-weight:600;box-shadow:0 2px 6px rgba(245,158,11,.35)}
+.btn-orange:hover{background:var(--orange-hover);border-color:var(--orange-hover)}
+.btn-sm{padding:5px 10px;font-size:12px}
+.btn-subtle{background:transparent;border:1px solid var(--gray-300);color:var(--gray-500);font-size:13px}
+.btn-subtle:hover{background:var(--gray-100);color:var(--gray-700);border-color:var(--gray-400)}
+.content{flex:1;overflow-y:auto;padding:24px 32px 80px;background:#f0f2f5}
+.section{display:none}
+.section.active{display:block}
+.section-title{font-size:20px;font-weight:700;margin-bottom:20px;padding-bottom:12px;border-bottom:2px solid var(--gray-200)}
+.card{background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.04);padding:20px;margin-bottom:16px}
+.card-title{font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--gray-200)}
+.form-row{display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap}
+.form-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:200px}
+.form-group.full{min-width:100%;flex-basis:100%}
+.form-group.half{flex:1;min-width:200px}
+.form-group label{font-size:12px;font-weight:600;color:var(--gray-700)}
+.form-group label .req{color:var(--red);margin-left:2px}
+input[type="text"],input[type="number"],input[type="email"],input[type="tel"],input[type="date"],select,textarea{
+  height:40px;padding:0 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);color:var(--gray-900);transition:border-color .3s, box-shadow .3s;width:100%}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,106,255,.1)}
+textarea{height:auto;min-height:80px;padding:10px 12px;resize:vertical}
+textarea.yellow-bg{background:#FFFBEB}
+textarea.red-bg{background:#FEF2F2}
+select{appearance:auto}
+.field-error{border-color:var(--red) !important;box-shadow:0 0 0 3px rgba(239,68,68,.15) !important;animation:shakeField .4s ease}
+@keyframes shakeField{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-4px)}40%,80%{transform:translateX(4px)}}
+.toggle-wrap{display:flex;align-items:center;gap:8px;height:40px}
+.toggle{width:44px;height:24px;background:var(--gray-300);border-radius:12px;cursor:pointer;position:relative;transition:background .2s;flex-shrink:0}
+.toggle.on{background:var(--blue)}
+.toggle::after{content:'';position:absolute;width:20px;height:20px;background:#fff;border-radius:50%;top:2px;left:2px;transition:transform .2s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.toggle.on::after{transform:translateX(20px)}
+.toggle-label{font-size:13px;color:var(--gray-700)}
+.checkbox-group{display:flex;flex-wrap:wrap;gap:8px}
+.checkbox-item{display:flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--gray-200);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s;background:var(--gray-50)}
+.checkbox-item.checked{background:#EFF6FF;border-color:var(--blue);color:var(--blue)}
+.checkbox-item .cb{width:16px;height:16px;border:2px solid var(--gray-300);border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px;transition:all .15s}
+.checkbox-item.checked .cb{background:var(--blue);border-color:var(--blue);color:#fff}
+.repeatable-group{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-bottom:8px;position:relative}
+.repeatable-group .remove-btn{position:absolute;top:8px;right:8px;width:28px;height:28px;border-radius:50%;background:var(--red);color:#fff;border:none;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center}
+.add-btn{display:inline-flex;align-items:center;gap:4px;padding:8px 16px;background:#EFF6FF;color:var(--blue);border:1px dashed var(--blue);border-radius:6px;cursor:pointer;font-size:13px;font-family:var(--font);margin-top:4px}
+.add-btn:hover{background:#DBEAFE}
+.feature-item{border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-bottom:8px;background:#fff}
+.feature-header{display:flex;align-items:center;gap:10px}
+.feature-header .toggle{flex-shrink:0}
+.feature-header .feature-name{flex:1;font-size:13px;font-weight:500}
+.feature-notes{margin-top:8px}
+.feature-notes textarea{min-height:50px}
+.hw-summary{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.hw-summary-item{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:12px;text-align:center}
+.hw-summary-item .hw-val{font-size:24px;font-weight:700;color:var(--blue)}
+.hw-summary-item .hw-label{font-size:11px;color:var(--gray-500);margin-top:2px}
+.section-nav{display:flex;justify-content:space-between;align-items:center;margin-top:24px;padding-top:20px;border-top:1px solid var(--gray-200)}
+.section-nav .nav-info{font-size:12px;color:var(--gray-400)}
+.section-nav .btn-nav-prev,.section-nav .btn-nav-next{min-width:140px}
+.section-nav .btn-nav-prev{justify-content:flex-start}
+.section-nav .btn-nav-next{justify-content:flex-end}
+.section-nav .nav-placeholder{min-width:140px}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:1000}
+.modal-overlay.show{display:flex}
+.modal{background:#fff;border-radius:12px;max-width:640px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--gray-200)}
+.modal-header h3{font-size:16px}
+.modal-close{width:32px;height:32px;border:none;background:var(--gray-100);border-radius:50%;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center}
+.modal-body{padding:20px}
+.modal-footer{padding:12px 20px;border-top:1px solid var(--gray-200);display:flex;gap:8px;justify-content:flex-end}
+.slack-msg{background:#fff;border-radius:8px;overflow:hidden;border:1px solid var(--gray-200);margin-bottom:8px}
+.slack-msg-inner{display:flex}
+.slack-accent{width:4px;flex-shrink:0}
+.slack-accent.red{background:var(--red)}
+.slack-accent.green{background:var(--green)}
+.slack-content{padding:14px 16px;flex:1;font-size:13px;line-height:1.7;font-family:var(--font)}
+.slack-content .slack-header{font-weight:700;font-size:15px;margin-bottom:6px}
+.slack-content .slack-header.red{color:var(--red)}
+.slack-content .slack-header.green{color:var(--green)}
+.slack-content .slack-field{margin-bottom:2px}
+.slack-content .slack-label{font-weight:700;color:var(--gray-700)}
+.slack-content .slack-section-title{font-weight:700;color:var(--gray-900);margin-top:10px;margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid var(--gray-100)}
+.slack-content .slack-missing{color:var(--red);font-weight:500}
+.slack-content .slack-warn{background:#FFFBEB;border-left:3px solid var(--yellow);padding:6px 10px;margin:8px 0;border-radius:0 4px 4px 0;font-size:12px}
+.slack-content .slack-attn{background:#FEF2F2;border-left:3px solid var(--red);padding:6px 10px;margin:8px 0;border-radius:0 4px 4px 0;font-size:12px;white-space:pre-wrap}
+.slack-content ul{margin:4px 0 4px 18px}
+.slack-content li{margin-bottom:2px}
+.toast-container{position:fixed;bottom:20px;right:20px;z-index:2000;display:flex;flex-direction:column;gap:8px}
+.toast{padding:12px 20px;border-radius:8px;color:#fff;font-size:13px;font-family:var(--font);box-shadow:0 4px 12px rgba(0,0,0,.2);animation:slideIn .3s ease;max-width:340px}
+.toast.success{background:#16a34a}
+.toast.error{background:var(--red)}
+.toast.info{background:var(--blue)}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+.spinner{display:inline-block;width:20px;height:20px;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:900px){
+  .sidebar{width:220px;min-width:220px}
+  .content{padding:16px 16px 80px}
+  .topbar-center{display:none}
+}
+</style>
+  <script type="application/ld+json">
+{
+  "@context": "urn:goose.ai:schema",
+  "@type": "GooseApp",
+  "name": "ae-discovery-tool",
+  "description": "AE discovery questionnaire for Square POS sales with Salesforce sync and Slack notifications",
+  "width": 1400,
+  "height": 900,
+  "resizable": true,
+  "mcpServers": [
+    "apps"
+  ]
+}
+  </script>
+  <script type="application/x-goose-prd">
+# AE Seller Discovery Tool
+
+## CRITICAL: No external dependencies. No CDN links. No Google Fonts. No Font Awesome. Use only inline HTML/CSS/JS. Use unicode emoji characters instead of icon fonts.
+
+## Overview
+A discovery questionnaire dashboard for Account Executives (AEs) selling Square POS to new restaurant/business sellers. The tool ensures all required information is captured during discovery calls. Includes Salesforce sync simulation and Slack notification automation for Onboarding Specialists when info is missed.
+
+## Design
+- Left sidebar (260px, dark navy #1B2559 background) with section navigation and completion tracking — fixed position, scrolls independently
+- Top bar (56px) with opportunity name, AE name, date, Save/Sync buttons — fixed at top
+- Main content area (white background, scrollable with bottom padding) showing the active section
+- Clean, modern SaaS look. Use system fonts: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif
+- Use emoji for icons: 🏢 📋 ⚠️ 🛠️ 🧰 💻 🔧 👥 📅 📝 ✅ 🔴 🟡 🟢 ☁️
+
+## Sidebar
+- App title "🔍 Discovery Tool" at top
+- Overall completion percentage with a progress bar (green fill on dark background)
+- Navigation items for each section, showing section number, name, and completion badge (🟢 100%, 🟡 partial, 🔴 0%)
+- Bottom: Salesforce status indicator "☁️ Salesforce Connected" and buttons: "Sync to Salesforce", "Submit for Onboarding"
+
+## Top Bar
+- Left: Opportunity name (auto-generated from business name + locations)
+- Center: AE Name input, Date input
+- Right: "💾 Save Draft" button, "📄 Load Example" button (ORANGE/AMBER color, prominent with shadow), "🆕 New" button
+
+## Section Navigation
+- Each section has Previous/Next navigation buttons at the bottom
+- Previous button styled as subtle gray button with hover effect, shows previous section icon and name
+- Next button (primary blue) shows next section icon and name
+- Center shows "Section X of 9" indicator
+- First section hides Previous button (shows empty placeholder for alignment)
+- Last section shows "Submit for Onboarding" instead of Next
+- Next button triggers validation of required fields before navigating (highlights empty required fields with red border shake animation)
+- Clicking Previous/Next scrolls content to top
+
+## Field Validation
+- Required fields marked with red asterisk *
+- When navigating forward via Next button, empty required fields get red border with shake animation
+- Validation is non-blocking (shows warning toast but still navigates after brief delay)
+- Red border animation lasts 2 seconds then clears
+
+## Dynamic Location Sync
+- When "Number of Locations" field changes, location detail groups are dynamically added/removed to match the count
+- Adding a location via the "+ Add Location" button also updates the Number of Locations field
+- Removing a location also updates the Number of Locations field
+- Location details include: Location Name, Address, City, State (dropdown of all US states + DC), Zip
+- Hardware section auto-populates location groups from Business Overview locations
+
+## Section Title Styling
+- Section titles are 20px bold with emoji prefix
+- Bottom border separator (2px solid gray-200) to clearly delineate from form content below
+
+## Sections (9 total, each is a card-based form)
+
+### Section 1: 🏢 Business Overview
+Fields:
+- Business Name (text, REQUIRED, placeholder: "e.g. Triple Crossing Brewing")
+- Number of Locations (number, REQUIRED) — dynamically syncs location detail groups
+- Location Details (repeatable group with + Add Location button): Location Name, Address, City, State (US state dropdown), Zip
+- Business Type (select: Restaurant, Brewery, Bar, Cafe, Retail, Food Truck, Other)
+- Business Offering (textarea, placeholder: "e.g. Brewery and restaurant")
+- Years in Business (number)
+- Estimated Annual Revenue (select: Under $500K, $500K-$1M, $1M-$5M, $5M-$10M, $10M+)
+- Number of Employees (number)
+
+### Section 2: ⚠️ Goals & Pain Points
+Fields:
+- Current POS Pain Points (textarea, REQUIRED, placeholder: "What issues are they experiencing?")
+- Previous Square Experience? (toggle yes/no, if yes show textarea for details)
+- Operational Inefficiencies (textarea, REQUIRED, placeholder: "Manual processes, redundant tools to eliminate?")
+- Apps/Tools to Consolidate (repeatable: App Name + What It's Used For, with + Add button)
+- Primary Reasons for Switching (checkboxes: Cost Savings, Better Features, Consolidation, Support Issues, Contract Issues, Growth Needs, Other)
+- Key Decision Maker (text inputs: Name, Role, Email, Phone)
+- Key Stakeholder / Day-to-Day User (text inputs: Name, Role)
+- Broader Business Goals (textarea)
+
+### Section 3: 🛠️ Migration Requirements
+Fields:
+- Must-Have Features (checklist with toggles, each with optional notes textarea):
+  Kitchen ticket routing/KDS, Table service, Multiple job roles/pay rates, Tip management, Pre-auth for cards, Online ordering, Loyalty program, Gift cards, Multi-location mgmt, Inventory management, Employee scheduling, Time clock, Reporting/analytics, Other
+- Nice-to-Have Features (same checklist format)
+- Critical Migration Concerns (textarea, placeholder: "Biggest fears about switching?")
+- Acceptable Disruption Level (select: None, Minimal, Some, Flexible)
+- Staff Training Requirements (textarea)
+
+### Section 4: 🧰 Current POS & Tools
+Fields:
+- Current POS System (select: Toast, Clover, Aloha, Micros, Lightspeed, Revel, TouchBistro, Other + text, REQUIRED)
+- Contract Status (select: Month-to-month, Under contract, Ending soon, Cancelled)
+- Contract End Date (date)
+- Early Termination Fee (text)
+- Additional Tools (repeatable: Tool Name, Purpose, Monthly Cost)
+- Current Checkout Flow (textarea)
+- Kitchen Display Setup (checkboxes: KDS Screens, Printed Tickets, Expo Station, None)
+- Kitchen Workflow Details (textarea)
+
+### Section 5: 💻 Technical Details
+Fields:
+- Square Product (checkboxes: Square for Restaurants, Square for Retail, Square POS, Square Online)
+- SaaS Tier (select: Free, Plus $60/mo, Premium $149/mo, Custom)
+- Add-On Services (checkboxes: Payroll, Marketing, Loyalty, Online, Team Management)
+- Processing Rate (text)
+- Monthly Software Cost (text)
+- Custom Pricing/Discounts (textarea)
+
+### Section 6: 🔧 Hardware & Networking
+Fields:
+- Networking Assistance Needed (select: Yes, No, TBD - Site Survey Required, REQUIRED)
+- Existing Cabling Reusable? (select: Yes, No, Unknown)
+- Cabling Notes (textarea)
+- Site Survey Scheduled? (toggle, if yes show date picker)
+- Site Survey Notes (textarea)
+- Hardware Per Location (repeatable per location, auto-populated from Business Overview locations)
+- Hardware Summary (auto-calculated, read-only display showing totals)
+
+### Section 7: 👥 Staffing & Configuration
+Fields:
+- Staff Roles (repeatable: Role Name, Pay Rate, Tip Eligible toggle)
+- Tip Distribution Method (select: Individual, Pooled by hours, Weighted percentage, Custom)
+- Tip Pool Details (textarea)
+- Employees Per Location (repeatable: Location, Count)
+- Scheduling Needs (textarea)
+- Time Clock Requirements (textarea)
+
+### Section 8: 📅 Timeline & Planning
+Fields:
+- Go-Live Target Date (date, REQUIRED)
+- Menu Build Start Date (date)
+- Dashboard Training Start Date (date)
+- Blackout Dates (repeatable: Start Date, End Date, Reason)
+- Installation Window Start/End (dates)
+- Installation Notes (textarea)
+- Preferred Install Days (checkboxes: Mon-Sun)
+- Install/Training Days Needed (number)
+- AE Available On-Site? (toggle, if yes show notes textarea)
+- Timeline Constraints (textarea)
+- GSO Special Instructions (textarea with yellow background)
+
+### Section 9: 📝 Notes & Special Instructions
+Fields:
+- Internal AE Notes (textarea, large)
+- ⚠️ Attention Items for GSO (textarea with red-tinted background, REQUIRED)
+- Competitive Intelligence (textarea)
+- Risk Factors (textarea)
+- Follow-Up Items (repeatable: Item, Owner, Due Date, Status select)
+
+## Key Features
+
+### Completion Tracking
+- Each section calculates completion % based on filled required + optional fields
+- Sidebar shows per-section completion with color badges
+- Overall % shown prominently at top of sidebar
+- Required fields marked with red asterisk *
+- Completion updates correctly when example data is loaded
+
+### Auto-Save
+- Save to localStorage every 30 seconds
+- "Last saved" timestamp shown near save button
+- Load from localStorage on page load
+
+### Load Example Button (PROMINENT - Orange/Amber)
+- Styled with orange/amber background (#F59E0B), white text, bold font, and subtle shadow
+- Pre-fills ALL sections comprehensively with Triple Crossing Brewing data
+
+### Salesforce Sync (Simulated)
+- "Sync to Salesforce" button shows a modal with field mapping preview table
+- Simulates sync with loading spinner then success toast
+- Shows "Last synced: [time]" in sidebar
+
+### Slack Notification Automation (Styled as realistic message card)
+- "Submit for Onboarding" button validates all required fields
+- Slack preview styled as realistic message card with left border accent:
+  - RED left border (4px) for incomplete discoveries
+  - GREEN left border (4px) for complete discoveries
+  - White card background with clean typography
+  - Bold section headers with divider lines
+  - Missing fields grouped by section with red highlighting
+  - GSO Instructions in yellow warning box
+  - Attention Items in red alert box
+  - Complete summary includes: Business Overview, Key Contacts, Technical Setup, Hardware & Networking, Timeline, GSO Instructions, Attention Items
+- "Send to #onboarding-handoffs" button (simulated, shows success toast)
+- "Copy to Clipboard" button with fallback for clipboard API
+
+### New Discovery
+- Clears all data and localStorage, resets form
+
+## Scrolling Behavior
+- Main content area scrolls independently while sidebar stays fixed
+- Content has 80px bottom padding so last fields aren't cut off
+- Section navigation (Previous/Next) scrolls content to top when switching sections
+
+## Visual Style Details
+- Cards: white background, 1px solid #E5E7EB border, 8px border-radius, subtle shadow
+- Required field labels have red * after them
+- Input fields: 40px height, #F9FAFB background, 1px #E5E7EB border, 6px radius, focus: blue border
+- Field validation error: red border with 3px red shadow, shake animation (0.4s)
+- Textareas: same style, min-height 80px
+- Buttons: Primary (blue #006AFF), Secondary (white, gray border), Subtle (transparent bg, gray-300 border, gray-500 text, hover to gray-100), Danger (red), Orange (#F59E0B with shadow)
+- Toggle switches: 44px wide, 24px tall, blue when on
+- Repeatable groups: light gray background card with fields inside, red X remove button, blue + Add button below
+- Section nav footer: flex layout with Previous (subtle style) / Next (primary blue) buttons and section counter
+- Toast notifications: fixed bottom-right, slide in, auto-dismiss after 3 seconds
+- Modal: centered, white, max-width 640px, dark overlay, with close X button
+- Slack preview: white card with colored left border accent (4px), clean typography, section headers with borders
+  </script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">🔍 Discovery Tool</div>
+      <div class="progress-label"><span>Overall Completion</span><span id="overallPct">0%</span></div>
+      <div class="progress-bar"><div class="progress-fill" id="overallBar" style="width:0%"></div></div>
+    </div>
+    <nav class="sidebar-nav" id="sidebarNav"></nav>
+    <div class="sidebar-footer">
+      <div class="sf-status"><span class="dot"></span> ☁️ Salesforce Connected</div>
+      <div class="sf-last-sync" id="sfLastSync">Not yet synced</div>
+      <button class="sidebar-btn" onclick="syncToSalesforce()">☁️ Sync to Salesforce</button>
+      <button class="sidebar-btn primary" onclick="submitForOnboarding()">📤 Submit for Onboarding</button>
+    </div>
+  </aside>
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-opp" id="oppName">New Opportunity</div>
+      <div class="topbar-center">
+        <label>AE:</label><input type="text" id="aeName" placeholder="Your Name" data-field="aeName">
+        <label>Date:</label><input type="date" id="aeDate" data-field="aeDate">
+      </div>
+      <div class="topbar-right">
+        <span class="last-saved" id="lastSaved"></span>
+        <button class="btn" onclick="saveDraft()">💾 Save</button>
+        <button class="btn btn-orange" onclick="loadExample()">📄 Load Example</button>
+        <button class="btn" onclick="newDiscovery()">🆕 New</button>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header"><h3 id="modalTitle">Modal</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer" id="modalFooter"></div>
+  </div>
+</div>
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+var SECTIONS=[
+  {id:'business',icon:'🏢',name:'Business Overview'},
+  {id:'goals',icon:'⚠️',name:'Goals & Pain Points'},
+  {id:'migration',icon:'🛠️',name:'Migration Requirements'},
+  {id:'current',icon:'🧰',name:'Current POS & Tools'},
+  {id:'technical',icon:'💻',name:'Technical Details'},
+  {id:'hardware',icon:'🔧',name:'Hardware & Networking'},
+  {id:'staffing',icon:'👥',name:'Staffing & Configuration'},
+  {id:'timeline',icon:'📅',name:'Timeline & Planning'},
+  {id:'notes',icon:'📝',name:'Notes & Special Instructions'}
+];
+
+var US_STATES=['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC'];
+
+var data=getDefaultData();
+var activeSection=0;
+var autoSaveTimer=null;
+
+function getDefaultData(){
+  return{
+    aeName:'',aeDate:new Date().toISOString().split('T')[0],
+    business:{name:'',locations:1,locationDetails:[{name:'',address:'',city:'',state:'',zip:''}],type:'',offering:'',years:'',revenue:'',employees:''},
+    goals:{painPoints:'',prevSquare:false,prevSquareDetails:'',inefficiencies:'',appsToConsolidate:[{name:'',purpose:''}],switchReasons:[],decisionMaker:{name:'',role:'',email:'',phone:''},stakeholder:{name:'',role:''},broaderGoals:''},
+    migration:{mustHave:{},niceToHave:{},mustHaveNotes:{},niceToHaveNotes:{},concerns:'',disruption:'',training:''},
+    current:{pos:'',posOther:'',contractStatus:'',contractEnd:'',termFee:'',tools:[{name:'',purpose:'',cost:''}],checkoutFlow:'',kitchenDisplay:[],kitchenWorkflow:''},
+    technical:{products:[],tier:'',addons:[],rate:'',monthlyCost:'',customPricing:''},
+    hardware:{networking:'',cablingReusable:'',cablingNotes:'',siteSurvey:false,siteSurveyDate:'',siteSurveyNotes:'',locations:[]},
+    staffing:{roles:[{name:'',rate:'',tipEligible:false}],tipMethod:'',tipDetails:'',employeesPerLocation:[{location:'',count:''}],scheduling:'',timeClock:''},
+    timeline:{goLive:'',menuBuild:'',dashboardTraining:'',blackouts:[{start:'',end:'',reason:''}],installStart:'',installEnd:'',installNotes:'',installDays:[],installDaysNeeded:'',aeOnSite:false,aeOnSiteNotes:'',constraints:'',gsoInstructions:''},
+    notes:{internal:'',attentionGSO:'',competitive:'',risk:'',followUps:[{item:'',owner:'',due:'',status:'Pending'}]}
+  };
+}
+
+var FEATURES_LIST=['Kitchen ticket routing/KDS','Table service','Multiple job roles/pay rates','Tip management','Pre-auth for cards','Online ordering','Loyalty program','Gift cards','Multi-location mgmt','Inventory management','Employee scheduling','Time clock','Reporting/analytics','Other'];
+var SWITCH_REASONS=['Cost Savings','Better Features','Consolidation','Support Issues','Contract Issues','Growth Needs','Other'];
+var POS_OPTIONS=['Toast','Clover','Aloha','Micros','Lightspeed','Revel','TouchBistro','Other'];
+var KITCHEN_DISPLAY_OPTIONS=['KDS Screens','Printed Tickets','Expo Station','None'];
+var SQUARE_PRODUCTS=['Square for Restaurants','Square for Retail','Square POS','Square Online'];
+var ADDON_SERVICES=['Payroll','Marketing','Loyalty','Online','Team Management'];
+var DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+var REQUIRED_FIELDS={
+  0:[{path:'business.name',label:'Business Name'},{path:'business.locations',label:'Number of Locations'}],
+  1:[{path:'goals.painPoints',label:'Current POS Pain Points'},{path:'goals.inefficiencies',label:'Operational Inefficiencies'}],
+  3:[{path:'current.pos',label:'Current POS System'}],
+  5:[{path:'hardware.networking',label:'Networking Assistance Needed'}],
+  7:[{path:'timeline.goLive',label:'Go-Live Target Date'}],
+  8:[{path:'notes.attentionGSO',label:'Attention Items for GSO'}]
+};
+
+function renderSidebar(){
+  var nav=document.getElementById('sidebarNav');
+  nav.innerHTML=SECTIONS.map(function(s,i){
+    var pct=getSectionCompletion(i);
+    var badge=pct===100?'🟢':pct>0?'🟡':'🔴';
+    return'<div class="nav-item'+(i===activeSection?' active':'')+'" onclick="goToSection('+i+')">'+
+      '<span class="nav-num">'+(i+1)+'</span><span class="nav-name">'+s.icon+' '+s.name+'</span><span class="nav-badge">'+badge+'</span></div>';
+  }).join('');
+  var overall=Math.round(SECTIONS.reduce(function(a,_,i){return a+getSectionCompletion(i);},0)/SECTIONS.length);
+  document.getElementById('overallPct').textContent=overall+'%';
+  document.getElementById('overallBar').style.width=overall+'%';
+}
+
+function renderContent(){
+  var c=document.getElementById('content');
+  c.innerHTML=SECTIONS.map(function(s,i){
+    return'<div class="section'+(i===activeSection?' active':'')+'" id="sec-'+s.id+'">'+renderSection(i)+renderSectionNav(i)+'</div>';
+  }).join('');
+  bindEvents();
+  updateOppName();
+}
+
+function renderSectionNav(idx){
+  var html='<div class="section-nav">';
+  if(idx>0){
+    html+='<button class="btn btn-subtle btn-nav-prev" onclick="goToSection('+(idx-1)+')">← '+SECTIONS[idx-1].icon+' '+SECTIONS[idx-1].name+'</button>';
+  } else {
+    html+='<div class="nav-placeholder"></div>';
+  }
+  html+='<span class="nav-info">Section '+(idx+1)+' of '+SECTIONS.length+'</span>';
+  if(idx<SECTIONS.length-1){
+    html+='<button class="btn btn-primary btn-nav-next" onclick="navigateNext('+idx+')">'+SECTIONS[idx+1].icon+' '+SECTIONS[idx+1].name+' →</button>';
+  } else {
+    html+='<button class="btn btn-primary btn-nav-next" onclick="submitForOnboarding()">📤 Submit for Onboarding</button>';
+  }
+  html+='</div>';
+  return html;
+}
+
+function navigateNext(currentIdx){
+  collectAllFields();
+  var reqFields=REQUIRED_FIELDS[currentIdx];
+  var hasErrors=false;
+  if(reqFields){
+    reqFields.forEach(function(rf){
+      var v=getNestedValue(data,rf.path);
+      if(!v||v===''){
+        hasErrors=true;
+        highlightRequiredField(rf.path);
+      }
+    });
+  }
+  if(hasErrors){
+    showToast('⚠️ Some required fields are empty','error');
+    setTimeout(function(){goToSection(currentIdx+1);},1500);
+  } else {
+    goToSection(currentIdx+1);
+  }
+}
+
+function highlightRequiredField(fieldPath){
+  var el=document.querySelector('[data-field="'+fieldPath+'"]');
+  if(el){
+    el.classList.add('field-error');
+    el.scrollIntoView({behavior:'smooth',block:'center'});
+    setTimeout(function(){el.classList.remove('field-error');},2000);
+  }
+}
+
+function renderSection(idx){
+  switch(idx){
+    case 0:return renderBusiness();
+    case 1:return renderGoals();
+    case 2:return renderMigration();
+    case 3:return renderCurrent();
+    case 4:return renderTechnical();
+    case 5:return renderHardware();
+    case 6:return renderStaffing();
+    case 7:return renderTimeline();
+    case 8:return renderNotes();
+  }
+}
+
+function fg(label,type,field,value,opts){
+  opts=opts||{};
+  var req=opts.required?'<span class="req">*</span>':'';
+  var cls=opts.full?'form-group full':(opts.half?'form-group half':'form-group');
+  var ph=opts.placeholder||'';
+  var extraCls=opts.cls||'';
+  if(type==='textarea'){
+    return'<div class="'+cls+'"><label>'+label+req+'</label><textarea data-field="'+field+'" placeholder="'+esc(ph)+'" class="'+extraCls+'">'+esc(value||'')+'</textarea></div>';
+  }
+  if(type==='select'){
+    var options=(opts.options||[]).map(function(o){return'<option value="'+esc(o)+'"'+(value===o?' selected':'')+'>'+esc(o)+'</option>';}).join('');
+    return'<div class="'+cls+'"><label>'+label+req+'</label><select data-field="'+field+'"><option value="">Select...</option>'+options+'</select></div>';
+  }
+  return'<div class="'+cls+'"><label>'+label+req+'</label><input type="'+type+'" data-field="'+field+'" value="'+esc(value||'')+'" placeholder="'+esc(ph)+'"></div>';
+}
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function renderBusiness(){
+  var d=data.business;
+  var html='<div class="section-title">🏢 Business Overview</div>';
+  html+='<div class="card"><div class="card-title">Basic Information</div>'+
+    '<div class="form-row">'+fg('Business Name','text','business.name',d.name,{required:true,placeholder:'e.g. Triple Crossing Brewing'})+
+    fg('Number of Locations','number','business.locations',d.locations,{required:true})+'</div>'+
+    '<div class="form-row">'+fg('Business Type','select','business.type',d.type,{options:['Restaurant','Brewery','Bar','Cafe','Retail','Food Truck','Other']})+
+    fg('Estimated Annual Revenue','select','business.revenue',d.revenue,{options:['Under $500K','$500K-$1M','$1M-$5M','$5M-$10M','$10M+']})+'</div>'+
+    '<div class="form-row">'+fg('Years in Business','number','business.years',d.years)+
+    fg('Number of Employees','number','business.employees',d.employees)+'</div>'+
+    fg('Business Offering','textarea','business.offering',d.offering,{full:true,placeholder:'e.g. Brewery and restaurant'})+
+  '</div>';
+  html+='<div class="card"><div class="card-title">Location Details</div><div id="locationDetails">';
+  d.locationDetails.forEach(function(loc,i){
+    html+=renderLocationDetail(loc,i);
+  });
+  html+='</div><button class="add-btn" onclick="addLocation()">+ Add Location</button></div>';
+  return html;
+}
+
+function renderLocationDetail(loc,i){
+  var stateOptions=US_STATES.map(function(s){return'<option value="'+s+'"'+(loc.state===s?' selected':'')+'>'+s+'</option>';}).join('');
+  return'<div class="repeatable-group" data-loc-idx="'+i+'">'+
+    '<button class="remove-btn" onclick="removeLocation('+i+')">✕</button>'+
+    '<div style="font-weight:600;margin-bottom:8px;font-size:13px;color:var(--gray-500)">Location '+(i+1)+'</div>'+
+    '<div class="form-row">'+
+      fg('Location Name','text','business.locationDetails.'+i+'.name',loc.name,{placeholder:'e.g. Fulton'})+
+      fg('Address','text','business.locationDetails.'+i+'.address',loc.address)+
+    '</div>'+
+    '<div class="form-row">'+
+      fg('City','text','business.locationDetails.'+i+'.city',loc.city)+
+      '<div class="form-group"><label>State</label><select data-field="business.locationDetails.'+i+'.state"><option value="">Select...</option>'+stateOptions+'</select></div>'+
+      fg('Zip','text','business.locationDetails.'+i+'.zip',loc.zip)+
+    '</div></div>';
+}
+
+function renderGoals(){
+  var d=data.goals;
+  var html='<div class="section-title">⚠️ Goals & Pain Points</div>';
+  html+='<div class="card"><div class="card-title">Pain Points & Challenges</div>'+
+    fg('Current POS Pain Points','textarea','goals.painPoints',d.painPoints,{full:true,required:true,placeholder:'What issues are they experiencing?'})+
+    '<div class="form-row"><div class="form-group"><label>Previous Square Experience?</label>'+
+      '<div class="toggle-wrap"><div class="toggle'+(d.prevSquare?' on':'')+'" data-toggle="goals.prevSquare"></div><span class="toggle-label">'+(d.prevSquare?'Yes':'No')+'</span></div>'+
+    '</div></div>'+
+    (d.prevSquare?fg('Previous Square Details','textarea','goals.prevSquareDetails',d.prevSquareDetails,{full:true,placeholder:'What was their experience?'}):'')+
+    fg('Operational Inefficiencies','textarea','goals.inefficiencies',d.inefficiencies,{full:true,required:true,placeholder:'Manual processes, redundant tools to eliminate?'})+
+  '</div>';
+  html+='<div class="card"><div class="card-title">Apps/Tools to Consolidate</div><div id="appsToConsolidate">';
+  d.appsToConsolidate.forEach(function(a,i){
+    html+='<div class="repeatable-group"><button class="remove-btn" onclick="removeRepeatable(\'goals.appsToConsolidate\','+i+')">✕</button>'+
+      '<div class="form-row">'+fg('App Name','text','goals.appsToConsolidate.'+i+'.name',a.name)+fg('What It\'s Used For','text','goals.appsToConsolidate.'+i+'.purpose',a.purpose)+'</div></div>';
+  });
+  html+='</div><button class="add-btn" onclick="addRepeatable(\'goals.appsToConsolidate\',{name:\'\',purpose:\'\'})">+ Add App/Tool</button></div>';
+  html+='<div class="card"><div class="card-title">Reasons for Switching</div>'+
+    '<div class="checkbox-group">'+SWITCH_REASONS.map(function(r){return'<div class="checkbox-item'+(d.switchReasons.indexOf(r)>=0?' checked':'')+'" data-cb="goals.switchReasons" data-val="'+esc(r)+'"><span class="cb">'+(d.switchReasons.indexOf(r)>=0?'✓':'')+'</span>'+esc(r)+'</div>';}).join('')+'</div></div>';
+  html+='<div class="card"><div class="card-title">Key Contacts</div>'+
+    '<div style="font-size:13px;font-weight:600;margin-bottom:8px">Key Decision Maker</div>'+
+    '<div class="form-row">'+fg('Name','text','goals.decisionMaker.name',d.decisionMaker.name)+fg('Role','text','goals.decisionMaker.role',d.decisionMaker.role)+'</div>'+
+    '<div class="form-row">'+fg('Email','email','goals.decisionMaker.email',d.decisionMaker.email)+fg('Phone','tel','goals.decisionMaker.phone',d.decisionMaker.phone)+'</div>'+
+    '<div style="font-size:13px;font-weight:600;margin:12px 0 8px">Key Stakeholder / Day-to-Day User</div>'+
+    '<div class="form-row">'+fg('Name','text','goals.stakeholder.name',d.stakeholder.name)+fg('Role','text','goals.stakeholder.role',d.stakeholder.role)+'</div>'+
+    fg('Broader Business Goals','textarea','goals.broaderGoals',d.broaderGoals,{full:true})+
+  '</div>';
+  return html;
+}
+
+function renderMigration(){
+  var d=data.migration;
+  var html='<div class="section-title">🛠️ Migration Requirements</div>';
+  html+='<div class="card"><div class="card-title">Must-Have Features</div>';
+  FEATURES_LIST.forEach(function(f){
+    var key=f.replace(/[^a-zA-Z]/g,'');
+    var on=!!d.mustHave[key];
+    html+='<div class="feature-item"><div class="feature-header">'+
+      '<div class="toggle'+(on?' on':'')+'" data-toggle="migration.mustHave.'+key+'"></div>'+
+      '<span class="feature-name">'+esc(f)+'</span></div>'+
+      (on?'<div class="feature-notes"><textarea data-field="migration.mustHaveNotes.'+key+'" placeholder="Notes...">'+esc(d.mustHaveNotes[key]||'')+'</textarea></div>':'')+
+    '</div>';
+  });
+  html+='</div>';
+  html+='<div class="card"><div class="card-title">Nice-to-Have Features</div>';
+  FEATURES_LIST.forEach(function(f){
+    var key=f.replace(/[^a-zA-Z]/g,'');
+    var on=!!d.niceToHave[key];
+    html+='<div class="feature-item"><div class="feature-header">'+
+      '<div class="toggle'+(on?' on':'')+'" data-toggle="migration.niceToHave.'+key+'"></div>'+
+      '<span class="feature-name">'+esc(f)+'</span></div>'+
+      (on?'<div class="feature-notes"><textarea data-field="migration.niceToHaveNotes.'+key+'" placeholder="Notes...">'+esc(d.niceToHaveNotes[key]||'')+'</textarea></div>':'')+
+    '</div>';
+  });
+  html+='</div>';
+  html+='<div class="card"><div class="card-title">Migration Concerns</div>'+
+    fg('Critical Migration Concerns','textarea','migration.concerns',d.concerns,{full:true,placeholder:'Biggest fears about switching?'})+
+    '<div class="form-row">'+fg('Acceptable Disruption Level','select','migration.disruption',d.disruption,{options:['None','Minimal','Some','Flexible']})+'</div>'+
+    fg('Staff Training Requirements','textarea','migration.training',d.training,{full:true})+
+  '</div>';
+  return html;
+}
+
+function renderCurrent(){
+  var d=data.current;
+  var html='<div class="section-title">🧰 Current POS & Tools</div>';
+  html+='<div class="card"><div class="card-title">Current POS System</div>'+
+    '<div class="form-row">'+fg('Current POS System','select','current.pos',d.pos,{required:true,options:POS_OPTIONS})+'</div>'+
+    (d.pos==='Other'?'<div class="form-row">'+fg('Other POS','text','current.posOther',d.posOther)+'</div>':'')+
+    '<div class="form-row">'+fg('Contract Status','select','current.contractStatus',d.contractStatus,{options:['Month-to-month','Under contract','Ending soon','Cancelled']})+
+    fg('Contract End Date','date','current.contractEnd',d.contractEnd)+'</div>'+
+    fg('Early Termination Fee','text','current.termFee',d.termFee,{full:false})+
+  '</div>';
+  html+='<div class="card"><div class="card-title">Additional Tools</div><div id="currentTools">';
+  d.tools.forEach(function(t,i){
+    html+='<div class="repeatable-group"><button class="remove-btn" onclick="removeRepeatable(\'current.tools\','+i+')">✕</button>'+
+      '<div class="form-row">'+fg('Tool Name','text','current.tools.'+i+'.name',t.name)+fg('Purpose','text','current.tools.'+i+'.purpose',t.purpose)+fg('Monthly Cost','text','current.tools.'+i+'.cost',t.cost)+'</div></div>';
+  });
+  html+='</div><button class="add-btn" onclick="addRepeatable(\'current.tools\',{name:\'\',purpose:\'\',cost:\'\'})">+ Add Tool</button></div>';
+  html+='<div class="card"><div class="card-title">Kitchen & Checkout</div>'+
+    fg('Current Checkout Flow','textarea','current.checkoutFlow',d.checkoutFlow,{full:true})+
+    '<div class="form-group full"><label>Kitchen Display Setup</label>'+
+    '<div class="checkbox-group">'+KITCHEN_DISPLAY_OPTIONS.map(function(o){return'<div class="checkbox-item'+(d.kitchenDisplay.indexOf(o)>=0?' checked':'')+'" data-cb="current.kitchenDisplay" data-val="'+esc(o)+'"><span class="cb">'+(d.kitchenDisplay.indexOf(o)>=0?'✓':'')+'</span>'+esc(o)+'</div>';}).join('')+'</div></div>'+
+    fg('Kitchen Workflow Details','textarea','current.kitchenWorkflow',d.kitchenWorkflow,{full:true})+
+  '</div>';
+  return html;
+}
+
+function renderTechnical(){
+  var d=data.technical;
+  var html='<div class="section-title">💻 Technical Details</div>';
+  html+='<div class="card"><div class="card-title">Square Products</div>'+
+    '<div class="form-group full"><label>Square Product</label>'+
+    '<div class="checkbox-group">'+SQUARE_PRODUCTS.map(function(p){return'<div class="checkbox-item'+(d.products.indexOf(p)>=0?' checked':'')+'" data-cb="technical.products" data-val="'+esc(p)+'"><span class="cb">'+(d.products.indexOf(p)>=0?'✓':'')+'</span>'+esc(p)+'</div>';}).join('')+'</div></div>'+
+    '<div class="form-row">'+fg('SaaS Tier','select','technical.tier',d.tier,{options:['Free','Plus $60/mo','Premium $149/mo','Custom']})+'</div>'+
+    '<div class="form-group full"><label>Add-On Services</label>'+
+    '<div class="checkbox-group">'+ADDON_SERVICES.map(function(a){return'<div class="checkbox-item'+(d.addons.indexOf(a)>=0?' checked':'')+'" data-cb="technical.addons" data-val="'+esc(a)+'"><span class="cb">'+(d.addons.indexOf(a)>=0?'✓':'')+'</span>'+esc(a)+'</div>';}).join('')+'</div></div>'+
+  '</div>';
+  html+='<div class="card"><div class="card-title">Pricing</div>'+
+    '<div class="form-row">'+fg('Processing Rate','text','technical.rate',d.rate)+fg('Monthly Software Cost','text','technical.monthlyCost',d.monthlyCost)+'</div>'+
+    fg('Custom Pricing/Discounts','textarea','technical.customPricing',d.customPricing,{full:true})+
+  '</div>';
+  return html;
+}
+
+function renderHardware(){
+  var d=data.hardware;
+  syncHardwareLocations();
+  var html='<div class="section-title">🔧 Hardware & Networking</div>';
+  html+='<div class="card"><div class="card-title">Networking</div>'+
+    '<div class="form-row">'+fg('Networking Assistance Needed','select','hardware.networking',d.networking,{required:true,options:['Yes','No','TBD - Site Survey Required']})+
+    fg('Existing Cabling Reusable?','select','hardware.cablingReusable',d.cablingReusable,{options:['Yes','No','Unknown']})+'</div>'+
+    fg('Cabling Notes','textarea','hardware.cablingNotes',d.cablingNotes,{full:true,placeholder:'e.g. Can reuse existing Toast cabling, replace hardware 1:1'})+
+    '<div class="form-row"><div class="form-group"><label>Site Survey Scheduled?</label>'+
+      '<div class="toggle-wrap"><div class="toggle'+(d.siteSurvey?' on':'')+'" data-toggle="hardware.siteSurvey"></div><span class="toggle-label">'+(d.siteSurvey?'Yes':'No')+'</span></div>'+
+    '</div>'+(d.siteSurvey?fg('Site Survey Date','date','hardware.siteSurveyDate',d.siteSurveyDate):'')+'</div>'+
+    fg('Site Survey Notes','textarea','hardware.siteSurveyNotes',d.siteSurveyNotes,{full:true})+
+  '</div>';
+  html+='<div class="card"><div class="card-title">Hardware Per Location</div>';
+  if(d.locations.length===0){
+    html+='<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:13px">Add locations in Business Overview to configure hardware per location.</div>';
+  }
+  d.locations.forEach(function(loc,i){
+    html+='<div class="repeatable-group" style="margin-bottom:16px">'+
+      '<div style="font-weight:600;margin-bottom:10px;font-size:14px">📍 '+esc(loc.name||'Location '+(i+1))+'</div>'+
+      '<div class="form-row">'+
+        fg('Terminals','number','hardware.locations.'+i+'.terminals',loc.terminals)+
+        fg('Handhelds','number','hardware.locations.'+i+'.handhelds',loc.handhelds)+
+        fg('KDS Displays','number','hardware.locations.'+i+'.kds',loc.kds)+
+      '</div>'+
+      '<div class="form-row">'+
+        fg('Receipt Printers - Stationary','number','hardware.locations.'+i+'.printersStationary',loc.printersStationary)+
+        fg('Receipt Printers - Floating','number','hardware.locations.'+i+'.printersFloating',loc.printersFloating)+
+        fg('Kitchen Printers','number','hardware.locations.'+i+'.kitchenPrinters',loc.kitchenPrinters)+
+      '</div>'+
+      '<div class="form-row">'+
+        fg('Cash Drawers','number','hardware.locations.'+i+'.cashDrawers',loc.cashDrawers)+
+        fg('Stands/Mounts','number','hardware.locations.'+i+'.stands',loc.stands)+
+      '</div>'+
+      fg('Stand Notes','textarea','hardware.locations.'+i+'.standNotes',loc.standNotes,{full:true})+
+      fg('Printer Notes','textarea','hardware.locations.'+i+'.printerNotes',loc.printerNotes,{full:true})+
+    '</div>';
+  });
+  html+='</div>';
+  var totals=calcHardwareTotals();
+  html+='<div class="card"><div class="card-title">Hardware Summary (All Locations)</div><div class="hw-summary">';
+  var totalKeys=Object.keys(totals);
+  totalKeys.forEach(function(k){
+    html+='<div class="hw-summary-item"><div class="hw-val">'+totals[k]+'</div><div class="hw-label">'+k+'</div></div>';
+  });
+  html+='</div></div>';
+  return html;
+}
+
+function renderStaffing(){
+  var d=data.staffing;
+  var html='<div class="section-title">👥 Staffing & Configuration</div>';
+  html+='<div class="card"><div class="card-title">Staff Roles</div><div id="staffRoles">';
+  d.roles.forEach(function(r,i){
+    html+='<div class="repeatable-group"><button class="remove-btn" onclick="removeRepeatable(\'staffing.roles\','+i+')">✕</button>'+
+      '<div class="form-row">'+fg('Role Name','text','staffing.roles.'+i+'.name',r.name)+fg('Pay Rate','text','staffing.roles.'+i+'.rate',r.rate)+
+      '<div class="form-group"><label>Tip Eligible</label><div class="toggle-wrap"><div class="toggle'+(r.tipEligible?' on':'')+'" data-toggle="staffing.roles.'+i+'.tipEligible"></div><span class="toggle-label">'+(r.tipEligible?'Yes':'No')+'</span></div></div></div></div>';
+  });
+  html+='</div><button class="add-btn" onclick="addRepeatable(\'staffing.roles\',{name:\'\',rate:\'\',tipEligible:false})">+ Add Role</button></div>';
+  html+='<div class="card"><div class="card-title">Tip Distribution</div>'+
+    '<div class="form-row">'+fg('Tip Distribution Method','select','staffing.tipMethod',d.tipMethod,{options:['Individual','Pooled by hours','Weighted percentage','Custom']})+'</div>'+
+    fg('Tip Pool Details','textarea','staffing.tipDetails',d.tipDetails,{full:true})+
+  '</div>';
+  html+='<div class="card"><div class="card-title">Employees Per Location</div><div id="empPerLoc">';
+  d.employeesPerLocation.forEach(function(e,i){
+    html+='<div class="repeatable-group"><button class="remove-btn" onclick="removeRepeatable(\'staffing.employeesPerLocation\','+i+')">✕</button>'+
+      '<div class="form-row">'+fg('Location','text','staffing.employeesPerLocation.'+i+'.location',e.location)+fg('Count','number','staffing.employeesPerLocation.'+i+'.count',e.count)+'</div></div>';
+  });
+  html+='</div><button class="add-btn" onclick="addRepeatable(\'staffing.employeesPerLocation\',{location:\'\',count:\'\'})">+ Add Location</button></div>';
+  html+='<div class="card"><div class="card-title">Scheduling & Time Clock</div>'+
+    fg('Scheduling Needs','textarea','staffing.scheduling',d.scheduling,{full:true})+
+    fg('Time Clock Requirements','textarea','staffing.timeClock',d.timeClock,{full:true})+
+  '</div>';
+  return html;
+}
+
+function renderTimeline(){
+  var d=data.timeline;
+  var html='<div class="section-title">📅 Timeline & Planning</div>';
+  html+='<div class="card"><div class="card-title">Key Dates</div>'+
+    '<div class="form-row">'+fg('Go-Live Target Date','date','timeline.goLive',d.goLive,{required:true})+
+    fg('Menu Build Start Date','date','timeline.menuBuild',d.menuBuild)+
+    fg('Dashboard Training Start Date','date','timeline.dashboardTraining',d.dashboardTraining)+'</div>'+
+  '</div>';
+  html+='<div class="card"><div class="card-title">Blackout Dates</div><div id="blackouts">';
+  d.blackouts.forEach(function(b,i){
+    html+='<div class="repeatable-group"><button class="remove-btn" onclick="removeRepeatable(\'timeline.blackouts\','+i+')">✕</button>'+
+      '<div class="form-row">'+fg('Start','date','timeline.blackouts.'+i+'.start',b.start)+fg('End','date','timeline.blackouts.'+i+'.end',b.end)+fg('Reason','text','timeline.blackouts.'+i+'.reason',b.reason)+'</div></div>';
+  });
+  html+='</div><button class="add-btn" onclick="addRepeatable(\'timeline.blackouts\',{start:\'\',end:\'\',reason:\'\'})">+ Add Blackout</button></div>';
+  html+='<div class="card"><div class="card-title">Installation</div>'+
+    '<div class="form-row">'+fg('Installation Window Start','date','timeline.installStart',d.installStart)+fg('Installation Window End','date','timeline.installEnd',d.installEnd)+'</div>'+
+    fg('Installation Notes','textarea','timeline.installNotes',d.installNotes,{full:true})+
+    '<div class="form-group full"><label>Preferred Install Days</label>'+
+    '<div class="checkbox-group">'+DAYS.map(function(d2){return'<div class="checkbox-item'+(d.installDays.indexOf(d2)>=0?' checked':'')+'" data-cb="timeline.installDays" data-val="'+esc(d2)+'"><span class="cb">'+(d.installDays.indexOf(d2)>=0?'✓':'')+'</span>'+esc(d2)+'</div>';}).join('')+'</div></div>'+
+    '<div class="form-row">'+fg('Install/Training Days Needed','number','timeline.installDaysNeeded',d.installDaysNeeded)+'</div>'+
+    '<div class="form-row"><div class="form-group"><label>AE Available On-Site?</label>'+
+      '<div class="toggle-wrap"><div class="toggle'+(d.aeOnSite?' on':'')+'" data-toggle="timeline.aeOnSite"></div><span class="toggle-label">'+(d.aeOnSite?'Yes':'No')+'</span></div>'+
+    '</div></div>'+
+    (d.aeOnSite?fg('AE On-Site Notes','textarea','timeline.aeOnSiteNotes',d.aeOnSiteNotes,{full:true}):'')+
+    fg('Timeline Constraints','textarea','timeline.constraints',d.constraints,{full:true,placeholder:'Any timeline pressures or dependencies?'})+
+  '</div>';
+  html+='<div class="card"><div class="card-title">⚠️ GSO Special Instructions</div>'+
+    fg('','textarea','timeline.gsoInstructions',d.gsoInstructions,{full:true,placeholder:'Critical notes for the onboarding team',cls:'yellow-bg'})+
+  '</div>';
+  return html;
+}
+
+function renderNotes(){
+  var d=data.notes;
+  var html='<div class="section-title">📝 Notes & Special Instructions</div>';
+  html+='<div class="card">'+fg('Internal AE Notes','textarea','notes.internal',d.internal,{full:true})+'</div>';
+  html+='<div class="card"><div class="card-title">⚠️ Attention Items for GSO</div>'+
+    fg('','textarea','notes.attentionGSO',d.attentionGSO,{full:true,required:true,cls:'red-bg'})+
+  '</div>';
+  html+='<div class="card">'+fg('Competitive Intelligence','textarea','notes.competitive',d.competitive,{full:true})+
+    fg('Risk Factors','textarea','notes.risk',d.risk,{full:true})+'</div>';
+  html+='<div class="card"><div class="card-title">Follow-Up Items</div><div id="followUps">';
+  d.followUps.forEach(function(f,i){
+    html+='<div class="repeatable-group"><button class="remove-btn" onclick="removeRepeatable(\'notes.followUps\','+i+')">✕</button>'+
+      '<div class="form-row">'+fg('Item','text','notes.followUps.'+i+'.item',f.item)+fg('Owner','text','notes.followUps.'+i+'.owner',f.owner)+fg('Due Date','date','notes.followUps.'+i+'.due',f.due)+
+      fg('Status','select','notes.followUps.'+i+'.status',f.status,{options:['Pending','In Progress','Complete']})+'</div></div>';
+  });
+  html+='</div><button class="add-btn" onclick="addRepeatable(\'notes.followUps\',{item:\'\',owner:\'\',due:\'\',status:\'Pending\'})">+ Add Follow-Up</button></div>';
+  return html;
+}
+
+// DATA BINDING
+function bindEvents(){
+  document.querySelectorAll('[data-field]').forEach(function(el){
+    var ev=(el.tagName==='SELECT'||el.type==='date')?'change':'input';
+    el.addEventListener(ev,function(){
+      setNestedValue(data,el.dataset.field,el.value);
+      onDataChange(el.dataset.field);
+    });
+  });
+  document.querySelectorAll('[data-toggle]').forEach(function(el){
+    el.addEventListener('click',function(){
+      var path=el.dataset.toggle;
+      var cur=getNestedValue(data,path);
+      setNestedValue(data,path,!cur);
+      refreshAll();
+    });
+  });
+  document.querySelectorAll('[data-cb]').forEach(function(el){
+    el.addEventListener('click',function(){
+      var path=el.dataset.cb;
+      var val=el.dataset.val;
+      var arr=getNestedValue(data,path)||[];
+      var idx=arr.indexOf(val);
+      if(idx>=0)arr.splice(idx,1);else arr.push(val);
+      setNestedValue(data,path,arr);
+      refreshAll();
+    });
+  });
+}
+
+function setNestedValue(obj,path,val){
+  var parts=path.split('.');
+  var cur=obj;
+  for(var i=0;i<parts.length-1;i++){
+    var p=parts[i];
+    var nextP=parts[i+1];
+    if(!isNaN(nextP)){
+      if(!Array.isArray(cur[p]))cur[p]=[];
+      cur=cur[p];
+    } else {
+      if(typeof cur[p]!=='object'||cur[p]===null)cur[p]={};
+      cur=cur[p];
+    }
+  }
+  cur[parts[parts.length-1]]=val;
+}
+
+function getNestedValue(obj,path){
+  var parts=path.split('.');
+  var cur=obj;
+  for(var i=0;i<parts.length;i++){
+    if(cur==null)return undefined;
+    cur=cur[parts[i]];
+  }
+  return cur;
+}
+
+function onDataChange(field){
+  if(field==='business.locations'){
+    syncLocationDetailsToCount();
+    refreshAll();
+    return;
+  }
+  if(field&&(field.indexOf('business.name')===0||field.indexOf('business.locationDetails')>=0)){
+    updateOppName();
+  }
+  renderSidebar();
+}
+
+function syncLocationDetailsToCount(){
+  var count=parseInt(data.business.locations)||1;
+  if(count<1)count=1;
+  if(count>20)count=20;
+  var details=data.business.locationDetails;
+  while(details.length<count){
+    details.push({name:'',address:'',city:'',state:'',zip:''});
+  }
+  while(details.length>count){
+    details.pop();
+  }
+}
+
+function updateOppName(){
+  var name=data.business.name||'New Opportunity';
+  var locs=data.business.locations||1;
+  document.getElementById('oppName').textContent=name+' ('+locs+' location'+(locs!=1?'s':'')+')';
+}
+
+function refreshAll(){
+  collectAllFields();
+  renderContent();
+  renderSidebar();
+  var contentEl=document.getElementById('content');
+  contentEl.scrollTop=contentEl.scrollTop;
+}
+
+// SECTION COMPLETION
+function getSectionCompletion(idx){
+  switch(idx){
+    case 0:return calcCompletion(['business.name','business.locations'],['business.type','business.offering','business.years','business.revenue','business.employees']);
+    case 1:return calcCompletion(['goals.painPoints','goals.inefficiencies'],['goals.broaderGoals','goals.decisionMaker.name','goals.decisionMaker.role','goals.stakeholder.name','goals.stakeholder.role']);
+    case 2:return calcCompletion([],['migration.concerns','migration.disruption','migration.training']);
+    case 3:return calcCompletion(['current.pos'],['current.contractStatus','current.checkoutFlow','current.kitchenWorkflow','current.termFee']);
+    case 4:return calcCompletion([],['technical.tier','technical.rate','technical.monthlyCost','technical.customPricing']);
+    case 5:return calcCompletion(['hardware.networking'],['hardware.cablingReusable','hardware.cablingNotes','hardware.siteSurveyNotes']);
+    case 6:return calcCompletion([],['staffing.tipMethod','staffing.tipDetails','staffing.scheduling','staffing.timeClock']);
+    case 7:return calcCompletion(['timeline.goLive'],['timeline.menuBuild','timeline.installStart','timeline.installEnd','timeline.installDaysNeeded','timeline.gsoInstructions','timeline.constraints']);
+    case 8:return calcCompletion(['notes.attentionGSO'],['notes.internal','notes.competitive','notes.risk']);
+  }
+  return 0;
+}
+
+function calcCompletion(required,optional){
+  var all=required.concat(optional);
+  if(all.length===0)return 100;
+  var filled=0;
+  all.forEach(function(f){
+    var v=getNestedValue(data,f);
+    if(v!==undefined&&v!==null&&v!==''){
+      if(Array.isArray(v)){
+        if(v.length>0)filled++;
+      } else {
+        filled++;
+      }
+    }
+  });
+  return Math.round((filled/all.length)*100);
+}
+
+// REPEATABLE HELPERS
+function addLocation(){
+  data.business.locationDetails.push({name:'',address:'',city:'',state:'',zip:''});
+  data.business.locations=data.business.locationDetails.length;
+  refreshAll();
+}
+function removeLocation(i){
+  if(data.business.locationDetails.length>1){
+    data.business.locationDetails.splice(i,1);
+    data.business.locations=data.business.locationDetails.length;
+    refreshAll();
+  }
+}
+function addRepeatable(path,template){
+  var arr=getNestedValue(data,path);
+  arr.push(JSON.parse(JSON.stringify(template)));
+  refreshAll();
+}
+function removeRepeatable(path,i){
+  var arr=getNestedValue(data,path);
+  if(arr.length>1){arr.splice(i,1);refreshAll();}
+}
+
+// HARDWARE SYNC
+function syncHardwareLocations(){
+  var locs=data.business.locationDetails||[];
+  var hwLocs=data.hardware.locations;
+  while(hwLocs.length<locs.length){
+    hwLocs.push({name:'',terminals:'',handhelds:'',kds:'',printersStationary:'',printersFloating:'',kitchenPrinters:'',cashDrawers:'',stands:'',standNotes:'',printerNotes:''});
+  }
+  while(hwLocs.length>locs.length&&hwLocs.length>1)hwLocs.pop();
+  if(locs.length===0&&hwLocs.length>0){hwLocs.length=0;}
+  locs.forEach(function(l,i){hwLocs[i].name=l.name||('Location '+(i+1));});
+}
+
+function calcHardwareTotals(){
+  var t={Terminals:0,Handhelds:0,'KDS Displays':0,'Printers (Stat.)':0,'Printers (Float.)':0,'Kitchen Printers':0,'Cash Drawers':0,'Stands/Mounts':0};
+  (data.hardware.locations||[]).forEach(function(l){
+    t.Terminals+=parseInt(l.terminals)||0;
+    t.Handhelds+=parseInt(l.handhelds)||0;
+    t['KDS Displays']+=parseInt(l.kds)||0;
+    t['Printers (Stat.)']+=parseInt(l.printersStationary)||0;
+    t['Printers (Float.)']+=parseInt(l.printersFloating)||0;
+    t['Kitchen Printers']+=parseInt(l.kitchenPrinters)||0;
+    t['Cash Drawers']+=parseInt(l.cashDrawers)||0;
+    t['Stands/Mounts']+=parseInt(l.stands)||0;
+  });
+  return t;
+}
+
+// NAVIGATION
+function goToSection(i){
+  collectAllFields();
+  activeSection=i;
+  renderContent();
+  renderSidebar();
+  document.getElementById('content').scrollTop=0;
+}
+
+// SAVE / LOAD
+function saveDraft(){
+  collectAllFields();
+  localStorage.setItem('ae-discovery-data',JSON.stringify(data));
+  var now=new Date().toLocaleTimeString();
+  document.getElementById('lastSaved').textContent='Saved '+now;
+  showToast('💾 Draft saved','success');
+}
+
+function loadFromStorage(){
+  try{
+    var s=localStorage.getItem('ae-discovery-data');
+    if(s){
+      var loaded=JSON.parse(s);
+      data=mergeDeep(getDefaultData(),loaded);
+      document.getElementById('aeName').value=data.aeName||'';
+      document.getElementById('aeDate').value=data.aeDate||'';
+    }
+  }catch(e){}
+}
+
+function mergeDeep(target,source){
+  if(!source)return target;
+  for(var key in source){
+    if(source.hasOwnProperty(key)){
+      if(source[key]&&typeof source[key]==='object'&&!Array.isArray(source[key])){
+        if(!target[key])target[key]={};
+        mergeDeep(target[key],source[key]);
+      } else {
+        target[key]=source[key];
+      }
+    }
+  }
+  return target;
+}
+
+function newDiscovery(){
+  if(confirm('Clear all data and start a new discovery?')){
+    localStorage.removeItem('ae-discovery-data');
+    data=getDefaultData();
+    activeSection=0;
+    document.getElementById('aeName').value='';
+    document.getElementById('aeDate').value=data.aeDate;
+    document.getElementById('lastSaved').textContent='';
+    document.getElementById('sfLastSync').textContent='Not yet synced';
+    refreshAll();
+    showToast('🆕 New discovery started','info');
+  }
+}
+
+// AUTO-SAVE
+function startAutoSave(){
+  autoSaveTimer=setInterval(function(){
+    collectAllFields();
+    localStorage.setItem('ae-discovery-data',JSON.stringify(data));
+    var now=new Date().toLocaleTimeString();
+    document.getElementById('lastSaved').textContent='Auto-saved '+now;
+  },30000);
+}
+
+function collectAllFields(){
+  data.aeName=document.getElementById('aeName').value;
+  data.aeDate=document.getElementById('aeDate').value;
+  document.querySelectorAll('[data-field]').forEach(function(el){
+    setNestedValue(data,el.dataset.field,el.value);
+  });
+}
+
+// LOAD EXAMPLE
+function loadExample(){
+  data=getDefaultData();
+  data.aeName='Adam (AE)';
+  data.aeDate=new Date().toISOString().split('T')[0];
+  data.business={
+    name:'Triple Crossing Brewing',locations:3,
+    locationDetails:[
+      {name:'Fulton',address:'113 S Foushee St',city:'Richmond',state:'VA',zip:'23220'},
+      {name:'Downtown',address:'1111 E Main St',city:'Richmond',state:'VA',zip:'23219'},
+      {name:'Midlothian',address:'5203 Midlothian Tpke',city:'Richmond',state:'VA',zip:'23225'}
+    ],
+    type:'Brewery',offering:'Brewery and restaurant with full food menu at all locations. Tasting room at Fulton location. Full bar and kitchen service at all three.',years:'8',revenue:'$5M-$10M',employees:'85'
+  };
+  data.goals={
+    painPoints:'Employee at tasting room had concerns from previous Square experience at Hardywood - stated Toast was significantly better. Sophie (GM/Operations) is seeking to consolidate Backbar for beer/wine/spirits inventory to eliminate manual entry and Excel sheets. Current workflow has too many disconnected systems requiring duplicate data entry.',
+    prevSquare:true,prevSquareDetails:'Previous experience at Hardywood brewery - employees felt Square was lacking compared to Toast at the time. Key concern is that staff may resist the switch. Need to address these concerns directly with demos showing Square improvements since their last experience.',
+    inefficiencies:'Sophie currently uses Backbar separately for beer/wine/spirits inventory management and maintains manual Excel spreadsheets for tracking, reporting, and reconciliation. Wants to consolidate everything into one platform. Multiple logins, duplicate data entry, and manual processes across 3 locations are creating significant operational overhead.',
+    appsToConsolidate:[
+      {name:'Backbar',purpose:'Beer/wine/spirits inventory management across all locations'},
+      {name:'Excel Spreadsheets',purpose:'Manual tracking, reporting, and reconciliation'},
+      {name:'Toast Scheduling',purpose:'Employee scheduling - need equivalent in Square'}
+    ],
+    switchReasons:['Cost Savings','Better Features','Consolidation','Growth Needs'],
+    decisionMaker:{name:'Adam',role:'Owner',email:'adam@triplecrossing.com',phone:'804-555-0123'},
+    stakeholder:{name:'Sophie',role:'GM / Operations Lead'},
+    broaderGoals:'Consolidate tech stack, reduce costs, improve operational efficiency across all 3 locations. Streamline operations for Sophie and her team. Vetting functionality to ensure feature parity with Toast. Position for potential expansion. Smooth transition is critical - cannot disrupt daily operations.'
+  };
+  data.migration={
+    mustHave:{KitchenticketroutingKDS:true,Tableservice:true,Multiplejobrolespayrates:true,Tipmanagement:true,Preauthforcards:true},
+    niceToHave:{Onlineordering:true,Loyaltyprogram:true,Inventorymanagement:true,Reportinganalytics:true,Employeescheduling:true,Timeclock:true},
+    mustHaveNotes:{
+      Tipmanagement:'Tips based on hours worked per day, can also weight by percentage. Different tip pools for FOH and BOH. This is critical for staff buy-in.',
+      KitchenticketroutingKDS:'Pizza staff works off KDS exclusively. Expo station reads both tickets and KDS. Need routing by station.',
+      Multiplejobrolespayrates:'Multiple roles with different pay rates - servers, bartenders, kitchen, expo, management. Some staff work multiple roles.',
+      Preauthforcards:'Pre-auth for bar tabs is essential for all locations.'
+    },
+    niceToHaveNotes:{
+      Inventorymanagement:'Would replace Backbar if Square inventory is robust enough for beer/wine/spirits tracking. Sophie needs to evaluate.',
+      Employeescheduling:'Currently using Toast scheduling - need equivalent functionality in Square.',
+      Timeclock:'Need time clock at each location with role-based clock-in. Currently using Toast for this.'
+    },
+    concerns:'Primary concern is staff resistance based on previous Square experience at Hardywood. Need to demonstrate significant improvements since their last experience. Also concerned about disruption during transition - cannot afford downtime during service hours. Anniversary event April 17-19 is absolutely non-negotiable blackout.',
+    disruption:'Minimal',
+    training:'Full staff training needed at all 3 locations. Sophie to be trained as admin/power user first, then cascade training to location managers, then front-line staff. Staggered approach - one location at a time. Plan for 2-3 training sessions per location.'
+  };
+  data.current={
+    pos:'Toast',posOther:'',contractStatus:'Under contract',contractEnd:'',termFee:'TBD - need to review Toast contract terms',
+    tools:[
+      {name:'Backbar',purpose:'Beer/wine/spirits inventory management',cost:'$300/mo'},
+      {name:'Excel Spreadsheets',purpose:'Manual reporting, tracking, and reconciliation',cost:'$0'},
+      {name:'Toast Scheduling',purpose:'Employee scheduling across all locations',cost:'Included in Toast'},
+      {name:'Toast Time Clock',purpose:'Employee time tracking with role-based clock-in',cost:'Included in Toast'}
+    ],
+    checkoutFlow:'Handheld ordering at tables sent to KDS in kitchen. Bar orders taken at POS terminal. Pizza station works exclusively off KDS. Expo station manages order flow using both printed tickets and KDS display.',
+    kitchenDisplay:['KDS Screens','Printed Tickets','Expo Station'],
+    kitchenWorkflow:'Orders from handhelds route to kitchen KDS by station (grill, fryer, pizza, etc.). Pizza staff works exclusively off KDS. Expo station reads both printed tickets and KDS to manage order flow and coordinate timing. Printed tickets serve as backup and for expo coordination. Each location has slightly different kitchen layout but same general workflow.'
+  };
+  data.technical={
+    products:['Square for Restaurants'],
+    tier:'Premium $149/mo',
+    addons:['Team Management'],
+    rate:'Custom - pending final negotiation',
+    monthlyCost:'$149/mo per location ($447/mo total for 3 locations)',
+    customPricing:'Premium tier at $149/mo includes scheduling and time clock functionality. Additional discounts offered to accelerate timeline from July to April. Custom processing rate being negotiated based on volume across 3 locations.'
+  };
+  data.hardware={
+    networking:'TBD - Site Survey Required',
+    cablingReusable:'Yes',
+    cablingNotes:'Should be able to reuse existing Toast cabling at all locations and replace hardware 1:1. Site survey needed to confirm at each location. Toast hardware placement should map directly to Square hardware placement.',
+    siteSurvey:false,siteSurveyDate:'',
+    siteSurveyNotes:'Need to schedule site surveys at all 3 locations ASAP. Priority is Fulton (go-live first), then Downtown, then Midlothian. Check cabling, network infrastructure, and power at each station.',
+    locations:[
+      {name:'Fulton',terminals:'1',handhelds:'6',kds:'2',printersStationary:'1',printersFloating:'1',kitchenPrinters:'1',cashDrawers:'1',stands:'1',standNotes:'Concern about reopening/voiding closed checks on stand terminal - need to demo workflow',printerNotes:'1 floating receipt printer for handheld printing at tables'},
+      {name:'Downtown',terminals:'1',handhelds:'7',kds:'2',printersStationary:'1',printersFloating:'1',kitchenPrinters:'1',cashDrawers:'1',stands:'1',standNotes:'Same voiding/reopening concern as Fulton - consistent workflow needed across locations',printerNotes:'1 floating receipt printer for handheld printing'},
+      {name:'Midlothian',terminals:'1',handhelds:'5',kds:'2',printersStationary:'1',printersFloating:'0',kitchenPrinters:'1',cashDrawers:'1',stands:'1',standNotes:'Smaller location, same stand setup',printerNotes:'No floating printer needed at this location'}
+    ]
+  };
+  data.staffing={
+    roles:[
+      {name:'Server',rate:'$2.13/hr + tips',tipEligible:true},
+      {name:'Bartender',rate:'$2.13/hr + tips',tipEligible:true},
+      {name:'Kitchen / Line Cook',rate:'$15-18/hr',tipEligible:false},
+      {name:'Pizza Station',rate:'$15-17/hr',tipEligible:false},
+      {name:'Expo',rate:'$14/hr',tipEligible:true},
+      {name:'Manager',rate:'Salary',tipEligible:false},
+      {name:'Barback',rate:'$12/hr + tip share',tipEligible:true}
+    ],
+    tipMethod:'Custom',
+    tipDetails:'Tips based on hours worked per day, can also weight by percentage. Different tip pools for FOH and BOH where applicable. Servers and bartenders keep individual tips but participate in tip pool for support staff (expo, barback). Need to configure per location as each has slightly different pool structure. This is a critical feature for staff buy-in on the switch.',
+    employeesPerLocation:[
+      {location:'Fulton',count:'30'},
+      {location:'Downtown',count:'35'},
+      {location:'Midlothian',count:'20'}
+    ],
+    scheduling:'Currently using Toast scheduling across all locations. Need equivalent functionality in Square - shift creation, availability management, shift swaps, schedule publishing. Sophie manages schedules for all 3 locations.',
+    timeClock:'Need time clock at each location with role-based clock-in. Staff who work multiple roles need ability to clock in under different roles on different shifts. Break tracking required. Currently using Toast for this - need feature parity.'
+  };
+  data.timeline={
+    goLive:'2025-04-20',
+    menuBuild:'2025-03-01',
+    dashboardTraining:'2025-03-15',
+    blackouts:[{start:'2025-04-01',end:'2025-04-19',reason:'Anniversary celebration April 17-19 - absolutely no changes during this period. Buffer days before and after for prep/recovery.'}],
+    installStart:'2025-04-20',installEnd:'2025-04-25',
+    installNotes:'Staggered install across locations. Fulton first (April 20-21), then Downtown, then Midlothian. Ideal to do April 20-21 but open to extending into the following week if needed. Each location needs 1-2 days for hardware swap and go-live support.',
+    installDays:['Mon','Tue','Wed','Thu'],
+    installDaysNeeded:'5',
+    aeOnSite:true,
+    aeOnSiteNotes:'Adam will be on-site for Fulton go-live (first location) and available for all subsequent location installs. Will coordinate with Sophie on scheduling staff training during install days.',
+    constraints:'Timeline pushed from original July target to April with additional pricing discounts as incentive. Must hit April 20 go-live date. Anniversary celebration April 17-19 is absolute blackout - no installations, no changes, no disruptions. Need to work around Anniversary planning which starts April 1. Menu build and dashboard training need to start ASAP to stay on track.',
+    gsoInstructions:'CRITICAL NOTES FOR ONBOARDING TEAM:\n\u2022 Anniversary April 17-19 is absolute blackout - zero disruptions\n\u2022 Timeline was pushed up from July with pricing discounts - tight window\n\u2022 Networking TBD - site surveys needed ASAP at all 3 locations\n\u2022 Sophie (GM) is primary day-to-day contact for onboarding coordination\n\u2022 Staff has previous negative Square experience - be prepared to address concerns\n\u2022 Fulton location goes first, staggered rollout to Downtown then Midlothian\n\u2022 Menu build needs to start ASAP - coordinate with Sophie'
+  };
+  data.notes={
+    internal:'Deal accelerated from July to April with custom pricing/discounts as incentive. Adam (owner) is the decision maker but Sophie (GM/Operations) is the operational champion who will drive adoption. Address previous Square concerns head-on with demo focused on improvements since Hardywood experience. Key selling points: consolidation of Backbar + Excel + scheduling into one platform, cost savings, and improved operational efficiency. Sophie is excited about consolidation but cautious about staff reaction.',
+    attentionGSO:'\u26A0\uFE0F NETWORKING TBD - Not sure if they need networking assistance. Site survey at all 3 locations will determine. Should be able to use existing cabling from Toast and replace hardware 1:1.\n\u26A0\uFE0F Previous negative Square experience at Hardywood - staff (especially tasting room employees) may be resistant. Be prepared to address concerns and show improvements.\n\u26A0\uFE0F Timeline pushed from July to April with discounts - tight window, no room for delays\n\u26A0\uFE0F Anniversary blackout April 17-19 is NON-NEGOTIABLE - zero disruptions\n\u26A0\uFE0F Sophie (GM) is primary contact for all onboarding coordination - do not go through Adam for day-to-day items\n\u26A0\uFE0F 18 handhelds total across 3 locations - ensure all are configured and tested before go-live\n\u26A0\uFE0F Stand terminals have concern about voiding/reopening closed checks - need to demo and document workflow',
+    competitive:'Switching from Toast. Staff previously used Square at Hardywood and preferred Toast at the time. Need to demonstrate Square improvements and feature parity. Toast contract status needs to be confirmed - potential ETF. Key competitive advantage: consolidation (eliminating Backbar, Excel, separate scheduling) and cost savings.',
+    risk:'1. Staff resistance from previous Square experience - HIGHEST RISK\n2. Tight timeline (July pushed to April) with no buffer\n3. Networking unknowns until site surveys completed\n4. Anniversary blackout reduces available install window\n5. If site surveys reveal cabling issues, timeline could slip\n6. Toast contract/ETF details still unknown\n7. Sophie is single point of failure for operations coordination',
+    followUps:[
+      {item:'Schedule site surveys at all 3 locations (Fulton priority)',owner:'Adam (AE)',due:'2025-03-01',status:'Pending'},
+      {item:'Demo for Sophie and key staff - address Square concerns',owner:'Adam (AE)',due:'2025-03-05',status:'Pending'},
+      {item:'Confirm Toast contract terms and ETF details',owner:'Adam (AE)',due:'2025-03-01',status:'In Progress'},
+      {item:'Menu build kickoff with Sophie',owner:'Sophie (GM)',due:'2025-03-01',status:'Pending'},
+      {item:'Finalize custom processing rate',owner:'Adam (AE)',due:'2025-03-10',status:'Pending'},
+      {item:'Dashboard admin training for Sophie',owner:'Adam (AE)',due:'2025-03-15',status:'Pending'}
+    ]
+  };
+  document.getElementById('aeName').value=data.aeName;
+  document.getElementById('aeDate').value=data.aeDate;
+  refreshAll();
+  showToast('📄 Example loaded: Triple Crossing Brewing (3 locations)','info');
+}
+
+// SALESFORCE SYNC
+function syncToSalesforce(){
+  collectAllFields();
+  var body=document.getElementById('modalBody');
+  var footer=document.getElementById('modalFooter');
+  document.getElementById('modalTitle').textContent='☁️ Sync to Salesforce';
+  var preview='<div style="font-size:13px;margin-bottom:12px;color:var(--gray-500)">The following fields will be synced:</div>';
+  var mappings=[
+    ['Account Name',data.business.name],
+    ['Locations',data.business.locations],
+    ['Business Type',data.business.type],
+    ['Annual Revenue',data.business.revenue],
+    ['Current POS',data.current.pos],
+    ['Square Product',(data.technical.products||[]).join(', ')],
+    ['SaaS Tier',data.technical.tier],
+    ['Go-Live Date',data.timeline.goLive],
+    ['Decision Maker',data.goals.decisionMaker.name],
+    ['AE',data.aeName]
+  ];
+  preview+='<table style="width:100%;border-collapse:collapse;font-size:13px">';
+  mappings.forEach(function(m){
+    preview+='<tr style="border-bottom:1px solid var(--gray-200)"><td style="padding:8px;font-weight:600;color:var(--gray-700)">'+m[0]+'</td><td style="padding:8px">'+esc(m[1]||'\u2014')+'</td></tr>';
+  });
+  preview+='</table>';
+  body.innerHTML=preview;
+  footer.innerHTML='<button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="doSyncSF()">☁️ Sync Now</button>';
+  openModal();
+}
+
+function doSyncSF(){
+  var body=document.getElementById('modalBody');
+  var footer=document.getElementById('modalFooter');
+  body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:rgba(0,106,255,.2);border-top-color:var(--blue);width:40px;height:40px;margin:0 auto 16px"></div><div style="color:var(--gray-500)">Syncing to Salesforce...</div></div>';
+  footer.innerHTML='';
+  setTimeout(function(){
+    closeModal();
+    var now=new Date().toLocaleTimeString();
+    document.getElementById('sfLastSync').textContent='Last synced: '+now;
+    showToast('✅ Synced to Salesforce successfully','success');
+  },2000);
+}
+
+// SUBMIT FOR ONBOARDING
+function submitForOnboarding(){
+  collectAllFields();
+  var missing=getMissingRequired();
+  var body=document.getElementById('modalBody');
+  var footer=document.getElementById('modalFooter');
+
+  if(missing.length>0){
+    document.getElementById('modalTitle').textContent='📤 Incomplete Discovery';
+    var html='<div style="margin-bottom:12px;color:var(--gray-500);font-size:13px">The following required fields are missing. A Slack notification will be sent to <strong>#onboarding-handoffs</strong>:</div>';
+    html+='<div class="slack-msg"><div class="slack-msg-inner"><div class="slack-accent red"></div><div class="slack-content">';
+    html+='<div class="slack-header red">🔴 INCOMPLETE DISCOVERY \u2014 '+esc(data.business.name||'Unknown Business')+'</div>';
+    html+='<div class="slack-field"><span class="slack-label">AE:</span> '+esc(data.aeName||'Not specified')+'</div>';
+    html+='<div class="slack-field"><span class="slack-label">Opportunity:</span> '+esc(data.business.name||'N/A')+' ('+(data.business.locations||0)+' locations)</div>';
+    html+='<div class="slack-field"><span class="slack-label">Date:</span> '+esc(data.aeDate||'N/A')+'</div>';
+    html+='<div class="slack-section-title">\u26D4 Missing Required Fields</div><ul>';
+    var sectionGroups={};
+    missing.forEach(function(m){
+      if(!sectionGroups[m.section])sectionGroups[m.section]=[];
+      sectionGroups[m.section].push(m.field);
+    });
+    Object.keys(sectionGroups).forEach(function(sec){
+      html+='<li><strong>'+esc(sec)+':</strong> <span class="slack-missing">'+sectionGroups[sec].map(esc).join(', ')+'</span></li>';
+    });
+    html+='</ul>';
+    if(data.timeline.gsoInstructions){
+      html+='<div class="slack-warn"><strong>\u26A0\uFE0F GSO INSTRUCTIONS:</strong><br>'+esc(data.timeline.gsoInstructions).replace(/\n/g,'<br>')+'</div>';
+    }
+    if(data.notes.attentionGSO){
+      html+='<div class="slack-attn"><strong>🔴 ATTENTION ITEMS:</strong>\n'+esc(data.notes.attentionGSO)+'</div>';
+    }
+    html+='<div style="margin-top:12px;padding:8px 12px;background:#FEF2F2;border-radius:4px;font-weight:600;color:var(--red);font-size:12px">\u26A0\uFE0F Action needed: Please follow up with AE to complete discovery before onboarding handoff.</div>';
+    html+='</div></div></div>';
+    body.innerHTML=html;
+    footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy to Clipboard</button><button class="btn btn-primary" onclick="sendSlack(true)">📤 Send to #onboarding-handoffs</button>';
+  } else {
+    document.getElementById('modalTitle').textContent='📤 Complete Discovery \u2014 Ready for Handoff';
+    var totals=calcHardwareTotals();
+    var hwItems=[];
+    Object.keys(totals).forEach(function(k){if(totals[k]>0)hwItems.push(k+': '+totals[k]);});
+
+    var mustHaveList=[];
+    FEATURES_LIST.forEach(function(f){
+      var key=f.replace(/[^a-zA-Z]/g,'');
+      if(data.migration.mustHave[key])mustHaveList.push(f);
+    });
+
+    var html='<div style="margin-bottom:12px;color:var(--green);font-size:13px;font-weight:600">\u2705 All required fields are complete! Ready for onboarding handoff.</div>';
+    html+='<div class="slack-msg"><div class="slack-msg-inner"><div class="slack-accent green"></div><div class="slack-content">';
+    html+='<div class="slack-header green">\u2705 COMPLETE DISCOVERY \u2014 '+esc(data.business.name)+'</div>';
+    html+='<div class="slack-field"><span class="slack-label">AE:</span> '+esc(data.aeName)+'</div>';
+    html+='<div class="slack-field"><span class="slack-label">Date:</span> '+esc(data.aeDate)+'</div>';
+
+    html+='<div class="slack-section-title">🏢 Business Overview</div>';
+    html+='<div class="slack-field"><span class="slack-label">Business:</span> '+esc(data.business.name)+' | '+data.business.locations+' location(s) | '+esc(data.business.type)+'</div>';
+    html+='<div class="slack-field"><span class="slack-label">Revenue:</span> '+esc(data.business.revenue)+' | <span class="slack-label">Employees:</span> '+esc(data.business.employees)+'</div>';
+    if(data.business.locationDetails&&data.business.locationDetails.length>0){
+      html+='<div class="slack-field"><span class="slack-label">Locations:</span> '+data.business.locationDetails.map(function(l){return esc(l.name||'Unnamed');}).join(', ')+'</div>';
+    }
+
+    html+='<div class="slack-section-title">👥 Key Contacts</div>';
+    html+='<div class="slack-field"><span class="slack-label">Decision Maker:</span> '+esc(data.goals.decisionMaker.name)+' ('+esc(data.goals.decisionMaker.role)+')</div>';
+    html+='<div class="slack-field"><span class="slack-label">Day-to-Day Contact:</span> '+esc(data.goals.stakeholder.name)+' ('+esc(data.goals.stakeholder.role)+')</div>';
+
+    html+='<div class="slack-section-title">💻 Technical Setup</div>';
+    html+='<div class="slack-field"><span class="slack-label">Square Product:</span> '+(data.technical.products||[]).join(', ')+' | '+esc(data.technical.tier)+'</div>';
+    html+='<div class="slack-field"><span class="slack-label">Current POS:</span> '+esc(data.current.pos)+'</div>';
+    if(mustHaveList.length>0){
+      html+='<div class="slack-field"><span class="slack-label">Must-Have Features:</span> '+mustHaveList.map(esc).join(', ')+'</div>';
+    }
+
+    html+='<div class="slack-section-title">🔧 Hardware & Networking</div>';
+    if(hwItems.length>0)html+='<div class="slack-field"><span class="slack-label">Hardware Totals:</span> '+hwItems.join(' | ')+'</div>';
+    html+='<div class="slack-field"><span class="slack-label">Networking:</span> '+esc(data.hardware.networking)+'</div>';
+    if(data.hardware.cablingNotes)html+='<div class="slack-field"><span class="slack-label">Cabling:</span> '+esc(data.hardware.cablingNotes)+'</div>';
+
+    html+='<div class="slack-section-title">📅 Timeline</div>';
+    html+='<div class="slack-field"><span class="slack-label">Go-Live:</span> '+esc(data.timeline.goLive)+'</div>';
+    if(data.timeline.menuBuild)html+='<div class="slack-field"><span class="slack-label">Menu Build Start:</span> '+esc(data.timeline.menuBuild)+'</div>';
+    if(data.timeline.installStart)html+='<div class="slack-field"><span class="slack-label">Install Window:</span> '+esc(data.timeline.installStart)+' to '+esc(data.timeline.installEnd)+'</div>';
+    if(data.timeline.blackouts&&data.timeline.blackouts.length>0){
+      data.timeline.blackouts.forEach(function(b){
+        if(b.start)html+='<div class="slack-field"><span class="slack-label">\u26D4 Blackout:</span> '+esc(b.start)+' to '+esc(b.end)+' \u2014 '+esc(b.reason)+'</div>';
+      });
+    }
+
+    if(data.timeline.gsoInstructions){
+      html+='<div class="slack-warn"><strong>\u26A0\uFE0F GSO INSTRUCTIONS:</strong><br>'+esc(data.timeline.gsoInstructions).replace(/\n/g,'<br>')+'</div>';
+    }
+
+    if(data.notes.attentionGSO){
+      html+='<div class="slack-attn"><strong>🔴 ATTENTION ITEMS:</strong>\n'+esc(data.notes.attentionGSO)+'</div>';
+    }
+
+    html+='</div></div></div>';
+    body.innerHTML=html;
+    footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy to Clipboard</button><button class="btn btn-primary" onclick="sendSlack(false)">📤 Send to #onboarding-handoffs</button>';
+  }
+  openModal();
+}
+
+function getMissingRequired(){
+  var missing=[];
+  if(!data.business.name)missing.push({section:'🏢 Business Overview',field:'Business Name'});
+  if(!data.business.locations)missing.push({section:'🏢 Business Overview',field:'Number of Locations'});
+  if(!data.goals.painPoints)missing.push({section:'\u26A0\uFE0F Goals & Pain Points',field:'Current POS Pain Points'});
+  if(!data.goals.inefficiencies)missing.push({section:'\u26A0\uFE0F Goals & Pain Points',field:'Operational Inefficiencies'});
+  if(!data.current.pos)missing.push({section:'🧰 Current POS & Tools',field:'Current POS System'});
+  if(!data.hardware.networking)missing.push({section:'🔧 Hardware & Networking',field:'Networking Assistance Needed'});
+  if(!data.timeline.goLive)missing.push({section:'📅 Timeline & Planning',field:'Go-Live Target Date'});
+  if(!data.notes.attentionGSO)missing.push({section:'📝 Notes & Special Instructions',field:'Attention Items for GSO'});
+  return missing;
+}
+
+function sendSlack(isIncomplete){
+  closeModal();
+  setTimeout(function(){
+    showToast(isIncomplete?'📤 Slack notification sent to #onboarding-handoffs':'\u2705 Discovery submitted to #onboarding-handoffs','success');
+  },300);
+}
+
+function copySlackText(){
+  var preview=document.querySelector('.slack-content');
+  if(preview){
+    var text=preview.innerText;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){
+        showToast('📋 Copied to clipboard','success');
+      }).catch(function(){
+        fallbackCopy(text);
+      });
+    } else {
+      fallbackCopy(text);
+    }
+  }
+}
+
+function fallbackCopy(text){
+  var ta=document.createElement('textarea');
+  ta.value=text;
+  ta.style.position='fixed';
+  ta.style.left='-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try{document.execCommand('copy');showToast('📋 Copied to clipboard','success');}catch(e){showToast('Failed to copy','error');}
+  document.body.removeChild(ta);
+}
+
+// MODAL
+function openModal(){document.getElementById('modalOverlay').classList.add('show');}
+function closeModal(){document.getElementById('modalOverlay').classList.remove('show');}
+
+// TOAST
+function showToast(msg,type){
+  type=type||'info';
+  var c=document.getElementById('toastContainer');
+  var t=document.createElement('div');
+  t.className='toast '+type;
+  t.textContent=msg;
+  c.appendChild(t);
+  setTimeout(function(){t.style.opacity='0';t.style.transition='opacity .3s';setTimeout(function(){t.remove();},300);},3000);
+}
+
+// INIT
+document.addEventListener('DOMContentLoaded',function(){
+  document.getElementById('aeDate').value=data.aeDate;
+  loadFromStorage();
+  renderSidebar();
+  renderContent();
+  startAutoSave();
+  document.getElementById('modalOverlay').addEventListener('click',function(e){
+    if(e.target===document.getElementById('modalOverlay'))closeModal();
+  });
+});
+</script>
+</body>
+</html>
