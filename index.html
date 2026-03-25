@@ -1622,32 +1622,41 @@ function testProxy(){
   });
 }
 
-// ===== GOOGLE APPS SCRIPT POST HELPER =====
-// GAS web apps redirect POST→GET on 302. We use an iframe+form trick
-// OR we can use the fetch API with the right settings.
-// The simplest reliable approach: use XMLHttpRequest which follows redirects.
+// ===== GOOGLE APPS SCRIPT JSONP HELPER =====
+// Uses JSONP (script tag injection) to completely bypass CORS.
+// Payload is base64-encoded and sent as a GET query parameter.
+// GAS returns: callbackName({...json...})
 function gasPost(url, payload){
   return new Promise(function(resolve, reject){
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', url, true);
-    xhr.setRequestHeader('Content-Type', 'text/plain');
-    xhr.onload = function(){
-      try {
-        var json = JSON.parse(xhr.responseText);
-        resolve(json);
-      } catch(e){
-        // GAS might return HTML on error
-        if(xhr.responseText.indexOf('<!DOCTYPE')>-1){
-          reject(new Error('Google Apps Script returned HTML — check deployment settings (Who has access: Anyone)'));
-        } else {
-          reject(new Error('Invalid response: '+xhr.responseText.substring(0,200)));
-        }
-      }
+    var callbackName = '_gascb_' + Date.now() + '_' + Math.random().toString(36).substr(2,6);
+    var payloadB64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+    
+    var timeout = setTimeout(function(){
+      cleanup();
+      reject(new Error('Proxy request timed out (15s). Check your Google Apps Script deployment.'));
+    }, 15000);
+    
+    // Register global callback
+    window[callbackName] = function(data){
+      clearTimeout(timeout);
+      cleanup();
+      resolve(data);
     };
-    xhr.onerror = function(){
-      reject(new Error('Network error — check the proxy URL and your internet connection'));
+    
+    // Create script tag (JSONP)
+    var script = document.createElement('script');
+    script.src = url + '?callback=' + callbackName + '&p=' + encodeURIComponent(payloadB64);
+    script.onerror = function(){
+      clearTimeout(timeout);
+      cleanup();
+      reject(new Error('Failed to reach proxy. Check the URL and that the script is deployed as "Anyone".'));
     };
-    xhr.send(JSON.stringify(payload));
+    document.head.appendChild(script);
+    
+    function cleanup(){
+      try { delete window[callbackName]; } catch(e){}
+      try { document.head.removeChild(script); } catch(e){}
+    }
   });
 }
 
