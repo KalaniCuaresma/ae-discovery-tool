@@ -379,6 +379,8 @@ Fields:
       <div class="sf-last-sync" id="sfLastSync">Not yet synced</div>
       <button class="sidebar-btn" onclick="syncToSalesforce()">☁️ Sync to Salesforce</button>
       <button class="sidebar-btn primary" onclick="submitForOnboarding()">📤 Submit for Onboarding</button>
+      <button class="sidebar-btn" onclick="generateKickoffGuide()">📋 Kickoff Call Guide</button>
+      <button class="sidebar-btn" onclick="exportDiscovery()">📥 Export CSV / PDF</button>
       <button class="sidebar-btn" onclick="openSettings()" style="margin-top:4px;font-size:11px;opacity:.7">⚙️ Integration Settings</button>
     </div>
   </aside>
@@ -1977,6 +1979,583 @@ function fallbackCopy(text){
   ta.select();
   try{document.execCommand('copy');showToast('📋 Copied to clipboard','success');}catch(e){showToast('Failed to copy','error');}
   document.body.removeChild(ta);
+}
+
+// ===== KICKOFF CALL GUIDE =====
+// Generates a list of questions for the Onboarding PM to ask the seller
+// based on what the AE missed or left incomplete
+function generateKickoffGuide(){
+  collectAllFields();
+  var body=document.getElementById('modalBody');
+  var footer=document.getElementById('modalFooter');
+  document.getElementById('modalTitle').textContent='📋 Onboarding Kickoff Call Guide';
+
+  // Define ALL discovery questions mapped to data fields
+  // Each has: category, question (for the PM to ask the seller), field path, check function
+  var allQuestions = [
+    // BUSINESS OVERVIEW
+    {cat:'🏢 Business Overview', q:'Can you confirm the full legal business name?', field:'business.name', check:function(){return !data.business.name;}},
+    {cat:'🏢 Business Overview', q:'How many locations do you have, and what are their names and addresses?', field:'business.locations', check:function(){return !data.business.locations || data.business.locations<1;}},
+    {cat:'🏢 Business Overview', q:'What type of business are you? (Restaurant, retail, brewery, etc.)', field:'business.type', check:function(){return !data.business.type;}},
+    {cat:'🏢 Business Overview', q:'Can you describe what you offer? (Full menu, tasting room, bar, etc.)', field:'business.offering', check:function(){return !data.business.offering;}},
+    {cat:'🏢 Business Overview', q:'How long have you been in business?', field:'business.years', check:function(){return !data.business.years;}},
+    {cat:'🏢 Business Overview', q:'What is your estimated annual revenue?', field:'business.revenue', check:function(){return !data.business.revenue;}},
+    {cat:'🏢 Business Overview', q:'How many total employees do you have across all locations?', field:'business.employees', check:function(){return !data.business.employees;}},
+
+    // GOALS & PAIN POINTS
+    {cat:'⚠️ Goals & Pain Points', q:'What are the biggest pain points with your current POS system?', field:'goals.painPoints', check:function(){return !data.goals.painPoints;}},
+    {cat:'⚠️ Goals & Pain Points', q:'Have you or your staff used Square before? If so, what was that experience like?', field:'goals.prevSquare', check:function(){return data.goals.prevSquare && !data.goals.prevSquareDetails;}},
+    {cat:'⚠️ Goals & Pain Points', q:'What operational inefficiencies are you looking to solve? Any manual processes or duplicate data entry?', field:'goals.inefficiencies', check:function(){return !data.goals.inefficiencies;}},
+    {cat:'⚠️ Goals & Pain Points', q:'What apps or tools are you currently using that you\'d like to consolidate into one system?', field:'goals.appsToConsolidate', check:function(){return !data.goals.appsToConsolidate || !data.goals.appsToConsolidate[0] || !data.goals.appsToConsolidate[0].name;}},
+    {cat:'⚠️ Goals & Pain Points', q:'What are the main reasons you\'re considering switching to Square?', field:'goals.switchReasons', check:function(){return !data.goals.switchReasons || data.goals.switchReasons.length===0;}},
+    {cat:'⚠️ Goals & Pain Points', q:'Who is the primary decision maker for this project? (Name, role, best contact info)', field:'goals.decisionMaker', check:function(){return !data.goals.decisionMaker.name;}},
+    {cat:'⚠️ Goals & Pain Points', q:'Who will be the day-to-day contact for onboarding? (Name, role, best contact info)', field:'goals.stakeholder', check:function(){return !data.goals.stakeholder.name;}},
+    {cat:'⚠️ Goals & Pain Points', q:'What are your broader business goals for the next 6-12 months?', field:'goals.broaderGoals', check:function(){return !data.goals.broaderGoals;}},
+
+    // MIGRATION REQUIREMENTS
+    {cat:'🛠️ Migration Requirements', q:'What features are absolute must-haves for your new POS? (Kitchen tickets/KDS, table service, pre-auth, tip management, etc.)', field:'migration.mustHave', check:function(){return Object.keys(data.migration.mustHave).filter(function(k){return data.migration.mustHave[k];}).length===0;}},
+    {cat:'🛠️ Migration Requirements', q:'Are there any nice-to-have features you\'d love but could live without?', field:'migration.niceToHave', check:function(){return Object.keys(data.migration.niceToHave).filter(function(k){return data.migration.niceToHave[k];}).length===0;}},
+    {cat:'🛠️ Migration Requirements', q:'What concerns do you have about switching POS systems?', field:'migration.concerns', check:function(){return !data.migration.concerns;}},
+    {cat:'🛠️ Migration Requirements', q:'How much disruption can your business tolerate during the transition? (Minimal, moderate, flexible)', field:'migration.disruption', check:function(){return !data.migration.disruption;}},
+    {cat:'🛠️ Migration Requirements', q:'What does your ideal training plan look like? Who needs to be trained and in what order?', field:'migration.training', check:function(){return !data.migration.training;}},
+
+    // CURRENT POS & TOOLS
+    {cat:'🧰 Current POS & Tools', q:'What POS system are you currently using?', field:'current.pos', check:function(){return !data.current.pos;}},
+    {cat:'🧰 Current POS & Tools', q:'Are you under contract with your current POS? When does it end? Any early termination fees?', field:'current.contractStatus', check:function(){return !data.current.contractStatus;}},
+    {cat:'🧰 Current POS & Tools', q:'What other tools or apps do you use alongside your POS? (Inventory, scheduling, accounting, etc.)', field:'current.tools', check:function(){return !data.current.tools || !data.current.tools[0] || !data.current.tools[0].name;}},
+    {cat:'🧰 Current POS & Tools', q:'Walk me through your current checkout flow — how does an order go from the server to the kitchen to the customer?', field:'current.checkoutFlow', check:function(){return !data.current.checkoutFlow;}},
+    {cat:'🧰 Current POS & Tools', q:'Do you use KDS screens, printed tickets, or both in the kitchen? How does your expo station work?', field:'current.kitchenWorkflow', check:function(){return !data.current.kitchenWorkflow;}},
+
+    // TECHNICAL DETAILS
+    {cat:'💻 Technical Details', q:'Which Square product and tier have been discussed? (Square for Restaurants, Retail, etc.)', field:'technical.products', check:function(){return !data.technical.products || data.technical.products.length===0;}},
+    {cat:'💻 Technical Details', q:'What SaaS tier are you on? (Free, Plus, Premium)', field:'technical.tier', check:function(){return !data.technical.tier;}},
+
+    // HARDWARE & NETWORKING
+    {cat:'🔧 Hardware & Networking', q:'Do you need networking assistance at any of your locations? Has a site survey been done?', field:'hardware.networking', check:function(){return !data.hardware.networking;}},
+    {cat:'🔧 Hardware & Networking', q:'Can we reuse existing cabling from your current POS, or will new cabling be needed?', field:'hardware.cablingReusable', check:function(){return !data.hardware.cablingReusable;}},
+    {cat:'🔧 Hardware & Networking', q:'For each location, how many of each do you need: POS terminals, handhelds, KDS screens, receipt printers, kitchen printers, cash drawers?', field:'hardware.locations', check:function(){return !data.hardware.locations || data.hardware.locations.length===0 || !data.hardware.locations[0].terminals;}},
+    {cat:'🔧 Hardware & Networking', q:'Do you need any floating receipt printers for handheld printing at tables?', field:'hardware.printers', check:function(){var locs=data.hardware.locations||[]; return locs.length>0 && locs.some(function(l){return !l.printersFloating && l.printersFloating!=='0';});}},
+    {cat:'🔧 Hardware & Networking', q:'Any concerns about specific hardware setups? (e.g., voiding/reopening closed checks on stand terminals)', field:'hardware.stands', check:function(){var locs=data.hardware.locations||[]; return locs.some(function(l){return l.stands && parseInt(l.stands)>0 && !l.standNotes;});}},
+
+    // STAFFING & CONFIGURATION
+    {cat:'👥 Staffing & Configuration', q:'What are the different staff roles at your locations, and what are their pay rates?', field:'staffing.roles', check:function(){return !data.staffing.roles || !data.staffing.roles[0] || !data.staffing.roles[0].name;}},
+    {cat:'👥 Staffing & Configuration', q:'How do you handle tips? (Pooled by hours, percentage-based, individual, etc.) Which roles are tip-eligible?', field:'staffing.tipMethod', check:function(){return !data.staffing.tipMethod;}},
+    {cat:'👥 Staffing & Configuration', q:'Can you walk me through your tip distribution in detail?', field:'staffing.tipDetails', check:function(){return !data.staffing.tipDetails;}},
+    {cat:'👥 Staffing & Configuration', q:'How many employees are at each location?', field:'staffing.employeesPerLocation', check:function(){return !data.staffing.employeesPerLocation || !data.staffing.employeesPerLocation[0] || !data.staffing.employeesPerLocation[0].count;}},
+    {cat:'👥 Staffing & Configuration', q:'What scheduling tool do you use? What features do you need? (Shift swaps, availability, multi-location)', field:'staffing.scheduling', check:function(){return !data.staffing.scheduling;}},
+    {cat:'👥 Staffing & Configuration', q:'Do you need time clock functionality? Any specific requirements? (Role-based clock-in, break tracking, overtime)', field:'staffing.timeClock', check:function(){return !data.staffing.timeClock;}},
+
+    // TIMELINE & PLANNING
+    {cat:'📅 Timeline & Planning', q:'What is your target go-live date?', field:'timeline.goLive', check:function(){return !data.timeline.goLive;}},
+    {cat:'📅 Timeline & Planning', q:'When would you like to start the menu build?', field:'timeline.menuBuild', check:function(){return !data.timeline.menuBuild;}},
+    {cat:'📅 Timeline & Planning', q:'Are there any blackout dates or events we need to work around?', field:'timeline.blackouts', check:function(){return !data.timeline.blackouts || !data.timeline.blackouts[0] || !data.timeline.blackouts[0].start;}},
+    {cat:'📅 Timeline & Planning', q:'What days work best for installation? How many days do you think we\'ll need?', field:'timeline.installStart', check:function(){return !data.timeline.installStart;}},
+    {cat:'📅 Timeline & Planning', q:'Will the AE be available on-site during installation?', field:'timeline.aeOnSite', check:function(){return data.timeline.aeOnSite===undefined || data.timeline.aeOnSite===null;}},
+    {cat:'📅 Timeline & Planning', q:'Are there any timeline constraints or deadlines we should be aware of?', field:'timeline.constraints', check:function(){return !data.timeline.constraints;}},
+
+    // NOTES
+    {cat:'📝 Notes & Special Instructions', q:'Is there anything else the onboarding team should know about your business or this transition?', field:'notes.attentionGSO', check:function(){return !data.notes.attentionGSO;}}
+  ];
+
+  // Separate into missed (AE didn't fill in) and completed
+  var missed = [];
+  var completed = [];
+  allQuestions.forEach(function(item){
+    if(item.check()) missed.push(item);
+    else completed.push(item);
+  });
+
+  // Build the guide HTML
+  var html = '';
+
+  // Summary bar
+  var pct = Math.round((completed.length / allQuestions.length) * 100);
+  var missedCount = missed.length;
+  html += '<div style="display:flex;gap:12px;margin-bottom:16px">';
+  html += '<div style="flex:1;padding:12px;background:'+(missedCount>0?'#FEF2F2':'#ECFDF5')+';border-radius:8px;text-align:center">';
+  html += '<div style="font-size:24px;font-weight:700;color:'+(missedCount>0?'var(--red)':'var(--green)')+'">'+missedCount+'</div>';
+  html += '<div style="font-size:11px;color:var(--gray-500)">Questions to Ask</div></div>';
+  html += '<div style="flex:1;padding:12px;background:#ECFDF5;border-radius:8px;text-align:center">';
+  html += '<div style="font-size:24px;font-weight:700;color:var(--green)">'+completed.length+'</div>';
+  html += '<div style="font-size:11px;color:var(--gray-500)">Already Answered</div></div>';
+  html += '<div style="flex:1;padding:12px;background:var(--gray-50);border-radius:8px;text-align:center">';
+  html += '<div style="font-size:24px;font-weight:700;color:var(--gray-700)">'+pct+'%</div>';
+  html += '<div style="font-size:11px;color:var(--gray-500)">Discovery Complete</div></div>';
+  html += '</div>';
+
+  if(missedCount === 0){
+    html += '<div style="padding:20px;background:#ECFDF5;border-radius:8px;text-align:center;margin-bottom:16px">';
+    html += '<div style="font-size:18px;margin-bottom:4px">✅ Discovery is 100% Complete!</div>';
+    html += '<div style="font-size:13px;color:var(--gray-500)">No additional questions needed for the kickoff call. All information has been captured by the AE.</div>';
+    html += '</div>';
+  }
+
+  // Missed questions — grouped by category
+  if(missedCount > 0){
+    html += '<div style="margin-bottom:8px;font-weight:700;font-size:14px;color:var(--red)">🔴 Questions to Ask During Kickoff Call</div>';
+    html += '<div style="font-size:12px;color:var(--gray-500);margin-bottom:12px">The AE did not capture the following information. Ask the seller these questions during the kickoff call:</div>';
+
+    var cats = {};
+    missed.forEach(function(item){
+      if(!cats[item.cat]) cats[item.cat] = [];
+      cats[item.cat].push(item);
+    });
+
+    Object.keys(cats).forEach(function(cat){
+      html += '<div style="margin-bottom:12px">';
+      html += '<div style="font-weight:600;font-size:13px;margin-bottom:6px;padding:6px 10px;background:var(--gray-50);border-radius:6px;border-left:3px solid var(--red)">'+cat+'</div>';
+      html += '<div style="padding-left:16px">';
+      cats[cat].forEach(function(item, idx){
+        html += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--gray-100)">';
+        html += '<input type="checkbox" style="margin-top:3px;flex-shrink:0" id="kq_'+cat.replace(/[^a-zA-Z]/g,'')+'_'+idx+'">';
+        html += '<label for="kq_'+cat.replace(/[^a-zA-Z]/g,'')+'_'+idx+'" style="font-size:13px;cursor:pointer">"'+esc(item.q)+'"</label>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    });
+  }
+
+  // Already answered — collapsed
+  if(completed.length > 0){
+    html += '<details style="margin-top:16px"><summary style="font-size:13px;font-weight:600;color:var(--green);cursor:pointer">✅ Already Answered ('+completed.length+' items) — click to review</summary>';
+    html += '<div style="padding:8px 0;font-size:12px;color:var(--gray-500)">';
+    var compCats = {};
+    completed.forEach(function(item){
+      if(!compCats[item.cat]) compCats[item.cat] = [];
+      compCats[item.cat].push(item);
+    });
+    Object.keys(compCats).forEach(function(cat){
+      html += '<div style="margin-bottom:8px"><strong>'+cat+'</strong><ul style="margin:4px 0 0 16px">';
+      compCats[cat].forEach(function(item){
+        html += '<li style="padding:2px 0;color:var(--gray-400)"><s>'+esc(item.q)+'</s></li>';
+      });
+      html += '</ul></div>';
+    });
+    html += '</div></details>';
+  }
+
+  // Special instructions from AE
+  if(data.notes.attentionGSO || data.timeline.gsoInstructions){
+    html += '<div style="margin-top:16px;padding:12px;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px">';
+    html += '<div style="font-weight:700;font-size:13px;margin-bottom:6px">⚠️ AE Notes for Onboarding Team</div>';
+    if(data.timeline.gsoInstructions){
+      html += '<div style="font-size:12px;white-space:pre-wrap;margin-bottom:8px">'+esc(data.timeline.gsoInstructions)+'</div>';
+    }
+    if(data.notes.attentionGSO){
+      html += '<div style="font-size:12px;white-space:pre-wrap">'+esc(data.notes.attentionGSO)+'</div>';
+    }
+    html += '</div>';
+  }
+
+  body.innerHTML = html;
+  footer.innerHTML = '<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copyKickoffGuide()">📋 Copy as Text</button><button class="btn btn-primary" onclick="printKickoffGuide()">🖨️ Print / Save PDF</button>';
+  openModal();
+}
+
+function copyKickoffGuide(){
+  collectAllFields();
+  var allQuestions = getKickoffQuestions();
+  var missed = allQuestions.filter(function(item){ return item.check(); });
+
+  var text = '📋 ONBOARDING KICKOFF CALL GUIDE\n';
+  text += '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+  text += 'Business: '+(data.business.name||'N/A')+'\n';
+  text += 'AE: '+(data.aeName||'N/A')+'\n';
+  text += 'Date: '+new Date().toLocaleDateString()+'\n';
+  text += 'Questions to Ask: '+missed.length+'\n\n';
+
+  if(missed.length === 0){
+    text += '✅ Discovery is 100% complete! No additional questions needed.\n';
+  } else {
+    var cats = {};
+    missed.forEach(function(item){
+      if(!cats[item.cat]) cats[item.cat] = [];
+      cats[item.cat].push(item);
+    });
+    Object.keys(cats).forEach(function(cat){
+      text += '\n'+cat+'\n';
+      text += '─────────────────────────\n';
+      cats[cat].forEach(function(item, idx){
+        text += '☐ '+item.q+'\n';
+      });
+    });
+  }
+
+  if(data.timeline.gsoInstructions){
+    text += '\n\n⚠️ GSO INSTRUCTIONS:\n'+data.timeline.gsoInstructions+'\n';
+  }
+  if(data.notes.attentionGSO){
+    text += '\n⚠️ ATTENTION ITEMS:\n'+data.notes.attentionGSO+'\n';
+  }
+
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){
+      showToast('📋 Kickoff guide copied to clipboard!','success');
+    }).catch(function(){ fallbackCopy(text); });
+  } else { fallbackCopy(text); }
+}
+
+function printKickoffGuide(){
+  collectAllFields();
+  var allQuestions = getKickoffQuestions();
+  var missed = allQuestions.filter(function(item){ return item.check(); });
+  var completed = allQuestions.filter(function(item){ return !item.check(); });
+
+  var html = '<!DOCTYPE html><html><head><title>Kickoff Call Guide — '+(data.business.name||'New Seller')+'</title>';
+  html += '<style>body{font-family:-apple-system,sans-serif;padding:40px;font-size:13px;color:#111;max-width:800px;margin:0 auto}';
+  html += 'h1{font-size:20px;margin-bottom:4px}h2{font-size:15px;margin:20px 0 8px;padding:6px 10px;background:#f3f4f6;border-left:3px solid #ef4444;border-radius:4px}';
+  html += '.meta{color:#6b7280;font-size:12px;margin-bottom:20px}.summary{display:flex;gap:12px;margin-bottom:20px}';
+  html += '.stat{flex:1;padding:12px;border-radius:8px;text-align:center}.stat .num{font-size:24px;font-weight:700}.stat .label{font-size:10px;color:#6b7280}';
+  html += '.q{display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #e5e7eb}';
+  html += '.q input{margin-top:3px}.q label{font-size:13px}';
+  html += '.note{padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;margin-top:16px;font-size:12px;white-space:pre-wrap}';
+  html += '.complete{color:#9ca3af;text-decoration:line-through;font-size:11px}';
+  html += '@media print{body{padding:20px}}</style></head><body>';
+
+  html += '<h1>📋 Onboarding Kickoff Call Guide</h1>';
+  html += '<div class="meta">'+esc(data.business.name||'New Seller')+' | AE: '+esc(data.aeName||'N/A')+' | '+new Date().toLocaleDateString()+'</div>';
+
+  html += '<div class="summary">';
+  html += '<div class="stat" style="background:#fef2f2"><div class="num" style="color:#ef4444">'+missed.length+'</div><div class="label">Questions to Ask</div></div>';
+  html += '<div class="stat" style="background:#ecfdf5"><div class="num" style="color:#22c55e">'+completed.length+'</div><div class="label">Already Answered</div></div>';
+  html += '<div class="stat" style="background:#f3f4f6"><div class="num">'+Math.round((completed.length/allQuestions.length)*100)+'%</div><div class="label">Complete</div></div>';
+  html += '</div>';
+
+  if(missed.length > 0){
+    var cats = {};
+    missed.forEach(function(item){ if(!cats[item.cat]) cats[item.cat]=[]; cats[item.cat].push(item); });
+    Object.keys(cats).forEach(function(cat){
+      html += '<h2>'+cat+'</h2>';
+      cats[cat].forEach(function(item){
+        html += '<div class="q"><input type="checkbox"><label>'+esc(item.q)+'</label></div>';
+      });
+    });
+  } else {
+    html += '<div style="padding:20px;background:#ecfdf5;border-radius:8px;text-align:center">✅ Discovery is 100% complete! No additional questions needed.</div>';
+  }
+
+  if(data.timeline.gsoInstructions || data.notes.attentionGSO){
+    html += '<div class="note"><strong>⚠️ AE Notes for Onboarding Team:</strong><br>';
+    if(data.timeline.gsoInstructions) html += esc(data.timeline.gsoInstructions)+'<br>';
+    if(data.notes.attentionGSO) html += esc(data.notes.attentionGSO);
+    html += '</div>';
+  }
+
+  html += '</body></html>';
+
+  var win = window.open('','_blank');
+  win.document.write(html);
+  win.document.close();
+  setTimeout(function(){ win.print(); }, 500);
+}
+
+// Helper: returns all kickoff questions (reusable)
+function getKickoffQuestions(){
+  return [
+    {cat:'🏢 Business Overview', q:'Can you confirm the full legal business name?', check:function(){return !data.business.name;}},
+    {cat:'🏢 Business Overview', q:'How many locations do you have, and what are their names and addresses?', check:function(){return !data.business.locations || data.business.locations<1;}},
+    {cat:'🏢 Business Overview', q:'What type of business are you? (Restaurant, retail, brewery, etc.)', check:function(){return !data.business.type;}},
+    {cat:'🏢 Business Overview', q:'Can you describe what you offer? (Full menu, tasting room, bar, etc.)', check:function(){return !data.business.offering;}},
+    {cat:'🏢 Business Overview', q:'How long have you been in business?', check:function(){return !data.business.years;}},
+    {cat:'🏢 Business Overview', q:'What is your estimated annual revenue?', check:function(){return !data.business.revenue;}},
+    {cat:'🏢 Business Overview', q:'How many total employees do you have across all locations?', check:function(){return !data.business.employees;}},
+    {cat:'⚠️ Goals & Pain Points', q:'What are the biggest pain points with your current POS system?', check:function(){return !data.goals.painPoints;}},
+    {cat:'⚠️ Goals & Pain Points', q:'Have you or your staff used Square before? If so, what was that experience like?', check:function(){return data.goals.prevSquare && !data.goals.prevSquareDetails;}},
+    {cat:'⚠️ Goals & Pain Points', q:'What operational inefficiencies are you looking to solve?', check:function(){return !data.goals.inefficiencies;}},
+    {cat:'⚠️ Goals & Pain Points', q:'What apps or tools would you like to consolidate into one system?', check:function(){return !data.goals.appsToConsolidate || !data.goals.appsToConsolidate[0] || !data.goals.appsToConsolidate[0].name;}},
+    {cat:'⚠️ Goals & Pain Points', q:'What are the main reasons you\'re considering switching to Square?', check:function(){return !data.goals.switchReasons || data.goals.switchReasons.length===0;}},
+    {cat:'⚠️ Goals & Pain Points', q:'Who is the primary decision maker? (Name, role, contact info)', check:function(){return !data.goals.decisionMaker.name;}},
+    {cat:'⚠️ Goals & Pain Points', q:'Who will be the day-to-day contact for onboarding? (Name, role, contact info)', check:function(){return !data.goals.stakeholder.name;}},
+    {cat:'⚠️ Goals & Pain Points', q:'What are your broader business goals for the next 6-12 months?', check:function(){return !data.goals.broaderGoals;}},
+    {cat:'🛠️ Migration Requirements', q:'What features are absolute must-haves? (Kitchen tickets, table service, pre-auth, tips, etc.)', check:function(){return Object.keys(data.migration.mustHave).filter(function(k){return data.migration.mustHave[k];}).length===0;}},
+    {cat:'🛠️ Migration Requirements', q:'Any nice-to-have features?', check:function(){return Object.keys(data.migration.niceToHave).filter(function(k){return data.migration.niceToHave[k];}).length===0;}},
+    {cat:'🛠️ Migration Requirements', q:'What concerns do you have about switching POS systems?', check:function(){return !data.migration.concerns;}},
+    {cat:'🛠️ Migration Requirements', q:'How much disruption can your business tolerate during the transition?', check:function(){return !data.migration.disruption;}},
+    {cat:'🛠️ Migration Requirements', q:'What does your ideal training plan look like?', check:function(){return !data.migration.training;}},
+    {cat:'🧰 Current POS & Tools', q:'What POS system are you currently using?', check:function(){return !data.current.pos;}},
+    {cat:'🧰 Current POS & Tools', q:'Are you under contract? When does it end? Any early termination fees?', check:function(){return !data.current.contractStatus;}},
+    {cat:'🧰 Current POS & Tools', q:'What other tools do you use alongside your POS?', check:function(){return !data.current.tools || !data.current.tools[0] || !data.current.tools[0].name;}},
+    {cat:'🧰 Current POS & Tools', q:'Walk me through your checkout flow — order to kitchen to customer.', check:function(){return !data.current.checkoutFlow;}},
+    {cat:'🧰 Current POS & Tools', q:'Do you use KDS screens, printed tickets, or both? How does your expo work?', check:function(){return !data.current.kitchenWorkflow;}},
+    {cat:'💻 Technical Details', q:'Which Square product and tier were discussed?', check:function(){return !data.technical.products || data.technical.products.length===0;}},
+    {cat:'💻 Technical Details', q:'What SaaS tier are you on?', check:function(){return !data.technical.tier;}},
+    {cat:'🔧 Hardware & Networking', q:'Do you need networking assistance? Has a site survey been done?', check:function(){return !data.hardware.networking;}},
+    {cat:'🔧 Hardware & Networking', q:'Can we reuse existing cabling from your current POS?', check:function(){return !data.hardware.cablingReusable;}},
+    {cat:'🔧 Hardware & Networking', q:'For each location: how many terminals, handhelds, KDS, printers, cash drawers?', check:function(){return !data.hardware.locations || data.hardware.locations.length===0 || !data.hardware.locations[0].terminals;}},
+    {cat:'👥 Staffing & Configuration', q:'What staff roles do you have and what are their pay rates?', check:function(){return !data.staffing.roles || !data.staffing.roles[0] || !data.staffing.roles[0].name;}},
+    {cat:'👥 Staffing & Configuration', q:'How do you handle tips? Which roles are tip-eligible?', check:function(){return !data.staffing.tipMethod;}},
+    {cat:'👥 Staffing & Configuration', q:'Can you walk me through your tip distribution in detail?', check:function(){return !data.staffing.tipDetails;}},
+    {cat:'👥 Staffing & Configuration', q:'How many employees at each location?', check:function(){return !data.staffing.employeesPerLocation || !data.staffing.employeesPerLocation[0] || !data.staffing.employeesPerLocation[0].count;}},
+    {cat:'👥 Staffing & Configuration', q:'What scheduling tool do you use? What features do you need?', check:function(){return !data.staffing.scheduling;}},
+    {cat:'👥 Staffing & Configuration', q:'Do you need time clock functionality? Any specific requirements?', check:function(){return !data.staffing.timeClock;}},
+    {cat:'📅 Timeline & Planning', q:'What is your target go-live date?', check:function(){return !data.timeline.goLive;}},
+    {cat:'📅 Timeline & Planning', q:'When would you like to start the menu build?', check:function(){return !data.timeline.menuBuild;}},
+    {cat:'📅 Timeline & Planning', q:'Any blackout dates or events we need to work around?', check:function(){return !data.timeline.blackouts || !data.timeline.blackouts[0] || !data.timeline.blackouts[0].start;}},
+    {cat:'📅 Timeline & Planning', q:'What days work best for installation? How many days needed?', check:function(){return !data.timeline.installStart;}},
+    {cat:'📅 Timeline & Planning', q:'Any timeline constraints or deadlines?', check:function(){return !data.timeline.constraints;}},
+    {cat:'📝 Notes', q:'Anything else the onboarding team should know about your business or this transition?', check:function(){return !data.notes.attentionGSO;}}
+  ];
+}
+
+// ===== EXPORT CSV / PDF =====
+function exportDiscovery(){
+  collectAllFields();
+  var body=document.getElementById('modalBody');
+  var footer=document.getElementById('modalFooter');
+  document.getElementById('modalTitle').textContent='📥 Export Discovery Data';
+
+  var html = '<div style="font-size:13px;margin-bottom:16px;color:var(--gray-500)">Export this discovery for Salesforce upload, record-keeping, or sharing with the onboarding team.</div>';
+
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
+
+  // CSV Export
+  html += '<div style="padding:20px;border:1px solid var(--gray-200);border-radius:8px;text-align:center;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor=\'var(--blue)\';this.style.background=\'var(--gray-50)\'" onmouseout="this.style.borderColor=\'var(--gray-200)\';this.style.background=\'#fff\'" onclick="downloadCSV()">';
+  html += '<div style="font-size:32px;margin-bottom:8px">📊</div>';
+  html += '<div style="font-weight:700;margin-bottom:4px">CSV Spreadsheet</div>';
+  html += '<div style="font-size:11px;color:var(--gray-400)">Import into Salesforce, Excel, or Google Sheets</div>';
+  html += '</div>';
+
+  // PDF Export
+  html += '<div style="padding:20px;border:1px solid var(--gray-200);border-radius:8px;text-align:center;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor=\'var(--blue)\';this.style.background=\'var(--gray-50)\'" onmouseout="this.style.borderColor=\'var(--gray-200)\';this.style.background=\'#fff\'" onclick="downloadPDF()">';
+  html += '<div style="font-size:32px;margin-bottom:8px">📄</div>';
+  html += '<div style="font-weight:700;margin-bottom:4px">PDF Document</div>';
+  html += '<div style="font-size:11px;color:var(--gray-400)">Print-friendly full discovery report</div>';
+  html += '</div>';
+
+  // JSON Export
+  html += '<div style="padding:20px;border:1px solid var(--gray-200);border-radius:8px;text-align:center;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor=\'var(--blue)\';this.style.background=\'var(--gray-50)\'" onmouseout="this.style.borderColor=\'var(--gray-200)\';this.style.background=\'#fff\'" onclick="downloadJSON()">';
+  html += '<div style="font-size:32px;margin-bottom:8px">🔧</div>';
+  html += '<div style="font-weight:700;margin-bottom:4px">JSON Data</div>';
+  html += '<div style="font-size:11px;color:var(--gray-400)">Raw data for developers or API import</div>';
+  html += '</div>';
+
+  // Kickoff Guide
+  html += '<div style="padding:20px;border:1px solid var(--gray-200);border-radius:8px;text-align:center;cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor=\'var(--blue)\';this.style.background=\'var(--gray-50)\'" onmouseout="this.style.borderColor=\'var(--gray-200)\';this.style.background=\'#fff\'" onclick="closeModal();generateKickoffGuide()">';
+  html += '<div style="font-size:32px;margin-bottom:8px">📋</div>';
+  html += '<div style="font-weight:700;margin-bottom:4px">Kickoff Call Guide</div>';
+  html += '<div style="font-size:11px;color:var(--gray-400)">Questions for onboarding PM based on gaps</div>';
+  html += '</div>';
+
+  html += '</div>';
+
+  body.innerHTML = html;
+  footer.innerHTML = '<button class="btn" onclick="closeModal()">Close</button>';
+  openModal();
+}
+
+function downloadCSV(){
+  var rows = [];
+  rows.push(['Section','Field','Value']);
+
+  // Business Overview
+  rows.push(['Business Overview','Business Name',data.business.name||'']);
+  rows.push(['Business Overview','Number of Locations',data.business.locations||'']);
+  rows.push(['Business Overview','Business Type',data.business.type||'']);
+  rows.push(['Business Overview','Business Offering',data.business.offering||'']);
+  rows.push(['Business Overview','Years in Business',data.business.years||'']);
+  rows.push(['Business Overview','Annual Revenue',data.business.revenue||'']);
+  rows.push(['Business Overview','Number of Employees',data.business.employees||'']);
+  if(data.business.locationDetails){
+    data.business.locationDetails.forEach(function(loc,i){
+      rows.push(['Business Overview','Location '+(i+1)+' Name',loc.name||'']);
+      rows.push(['Business Overview','Location '+(i+1)+' Address',(loc.address||'')+' '+(loc.city||'')+' '+(loc.state||'')+' '+(loc.zip||'')]);
+    });
+  }
+
+  // Goals
+  rows.push(['Goals & Pain Points','Pain Points',data.goals.painPoints||'']);
+  rows.push(['Goals & Pain Points','Previous Square Experience',data.goals.prevSquare?'Yes':'No']);
+  if(data.goals.prevSquare) rows.push(['Goals & Pain Points','Previous Square Details',data.goals.prevSquareDetails||'']);
+  rows.push(['Goals & Pain Points','Operational Inefficiencies',data.goals.inefficiencies||'']);
+  rows.push(['Goals & Pain Points','Switch Reasons',(data.goals.switchReasons||[]).join('; ')]);
+  rows.push(['Goals & Pain Points','Decision Maker',(data.goals.decisionMaker.name||'')+' ('+( data.goals.decisionMaker.role||'')+')']);
+  rows.push(['Goals & Pain Points','Day-to-Day Contact',(data.goals.stakeholder.name||'')+' ('+(data.goals.stakeholder.role||'')+')']);
+  rows.push(['Goals & Pain Points','Broader Goals',data.goals.broaderGoals||'']);
+
+  // Migration
+  var mustHaves = Object.keys(data.migration.mustHave).filter(function(k){return data.migration.mustHave[k];});
+  var niceToHaves = Object.keys(data.migration.niceToHave).filter(function(k){return data.migration.niceToHave[k];});
+  rows.push(['Migration','Must-Have Features',mustHaves.join('; ')]);
+  rows.push(['Migration','Nice-to-Have Features',niceToHaves.join('; ')]);
+  rows.push(['Migration','Concerns',data.migration.concerns||'']);
+  rows.push(['Migration','Disruption Tolerance',data.migration.disruption||'']);
+  rows.push(['Migration','Training Plan',data.migration.training||'']);
+
+  // Current POS
+  rows.push(['Current POS','Current System',data.current.pos||'']);
+  rows.push(['Current POS','Contract Status',data.current.contractStatus||'']);
+  rows.push(['Current POS','Checkout Flow',data.current.checkoutFlow||'']);
+  rows.push(['Current POS','Kitchen Workflow',data.current.kitchenWorkflow||'']);
+  if(data.current.tools){
+    data.current.tools.forEach(function(t,i){
+      if(t.name) rows.push(['Current POS','Tool '+(i+1),t.name+' — '+t.purpose+(t.cost?' ($'+t.cost+')':'')]);
+    });
+  }
+
+  // Technical
+  rows.push(['Technical','Square Products',(data.technical.products||[]).join('; ')]);
+  rows.push(['Technical','SaaS Tier',data.technical.tier||'']);
+  rows.push(['Technical','Monthly Cost',data.technical.monthlyCost||'']);
+  rows.push(['Technical','Custom Pricing',data.technical.customPricing||'']);
+
+  // Hardware
+  rows.push(['Hardware','Networking',data.hardware.networking||'']);
+  rows.push(['Hardware','Cabling Reusable',data.hardware.cablingReusable||'']);
+  rows.push(['Hardware','Cabling Notes',data.hardware.cablingNotes||'']);
+  if(data.hardware.locations){
+    data.hardware.locations.forEach(function(loc,i){
+      rows.push(['Hardware','Location '+(i+1)+' ('+( loc.name||'')+')',
+        'Terminals:'+( loc.terminals||0)+' Handhelds:'+(loc.handhelds||0)+' KDS:'+(loc.kds||0)+
+        ' Printers:'+(loc.printersStationary||0)+' Floating:'+(loc.printersFloating||0)+
+        ' Kitchen:'+(loc.kitchenPrinters||0)+' Drawers:'+(loc.cashDrawers||0)+' Stands:'+(loc.stands||0)]);
+    });
+  }
+
+  // Staffing
+  if(data.staffing.roles){
+    data.staffing.roles.forEach(function(r,i){
+      if(r.name) rows.push(['Staffing','Role '+(i+1),r.name+' — '+r.rate+(r.tipEligible?' (tip eligible)':' (no tips)')]);
+    });
+  }
+  rows.push(['Staffing','Tip Method',data.staffing.tipMethod||'']);
+  rows.push(['Staffing','Tip Details',data.staffing.tipDetails||'']);
+  rows.push(['Staffing','Scheduling',data.staffing.scheduling||'']);
+  rows.push(['Staffing','Time Clock',data.staffing.timeClock||'']);
+
+  // Timeline
+  rows.push(['Timeline','Go-Live Date',data.timeline.goLive||'']);
+  rows.push(['Timeline','Menu Build Start',data.timeline.menuBuild||'']);
+  rows.push(['Timeline','Install Window',(data.timeline.installStart||'')+' to '+(data.timeline.installEnd||'')]);
+  rows.push(['Timeline','AE On-Site',data.timeline.aeOnSite?'Yes':'No']);
+  rows.push(['Timeline','Constraints',data.timeline.constraints||'']);
+  rows.push(['Timeline','GSO Instructions',data.timeline.gsoInstructions||'']);
+  if(data.timeline.blackouts){
+    data.timeline.blackouts.forEach(function(b,i){
+      if(b.start) rows.push(['Timeline','Blackout '+(i+1),b.start+' to '+b.end+' — '+b.reason]);
+    });
+  }
+
+  // Notes
+  rows.push(['Notes','Internal Notes',data.notes.internal||'']);
+  rows.push(['Notes','Attention GSO',data.notes.attentionGSO||'']);
+  rows.push(['Notes','Competitive Intel',data.notes.competitive||'']);
+  rows.push(['Notes','Risk Factors',data.notes.risk||'']);
+
+  // AE info
+  rows.push(['Meta','AE Name',data.aeName||'']);
+  rows.push(['Meta','Discovery Date',data.aeDate||'']);
+
+  // Build CSV
+  var csv = rows.map(function(row){
+    return row.map(function(cell){
+      var s = String(cell||'').replace(/"/g,'""');
+      return '"'+s+'"';
+    }).join(',');
+  }).join('\n');
+
+  var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = (data.business.name||'discovery').replace(/[^a-zA-Z0-9]/g,'_')+'_discovery_'+data.aeDate+'.csv';
+  link.click();
+  showToast('📊 CSV downloaded!','success');
+}
+
+function downloadJSON(){
+  var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  var link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = (data.business.name||'discovery').replace(/[^a-zA-Z0-9]/g,'_')+'_discovery_'+data.aeDate+'.json';
+  link.click();
+  showToast('🔧 JSON downloaded!','success');
+}
+
+function downloadPDF(){
+  // Generate a print-friendly HTML page and trigger print (Save as PDF)
+  var html = '<!DOCTYPE html><html><head><title>Discovery Report — '+(data.business.name||'New Seller')+'</title>';
+  html += '<style>body{font-family:-apple-system,sans-serif;padding:40px;font-size:12px;color:#111;max-width:800px;margin:0 auto;line-height:1.5}';
+  html += 'h1{font-size:20px;border-bottom:2px solid #006AFF;padding-bottom:8px;margin-bottom:4px}';
+  html += 'h2{font-size:14px;margin:16px 0 6px;padding:6px 10px;background:#f3f4f6;border-left:3px solid #006AFF;border-radius:4px}';
+  html += '.meta{color:#6b7280;font-size:11px;margin-bottom:16px}';
+  html += '.field{display:flex;padding:4px 0;border-bottom:1px solid #f3f4f6}.field-label{font-weight:600;min-width:200px;color:#374151}.field-value{flex:1}';
+  html += '.warn{padding:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;margin:12px 0;font-size:11px;white-space:pre-wrap}';
+  html += '.attn{padding:10px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;margin:12px 0;font-size:11px;white-space:pre-wrap}';
+  html += '@media print{body{padding:20px}}</style></head><body>';
+
+  html += '<h1>📄 Seller Discovery Report</h1>';
+  html += '<div class="meta">'+esc(data.business.name||'New Seller')+' | AE: '+esc(data.aeName||'N/A')+' | Date: '+esc(data.aeDate||'N/A')+'</div>';
+
+  function addField(label, value){ return '<div class="field"><div class="field-label">'+label+'</div><div class="field-value">'+esc(String(value||'—'))+'</div></div>'; }
+
+  html += '<h2>🏢 Business Overview</h2>';
+  html += addField('Business Name', data.business.name);
+  html += addField('Locations', data.business.locations);
+  html += addField('Type', data.business.type);
+  html += addField('Offering', data.business.offering);
+  html += addField('Years in Business', data.business.years);
+  html += addField('Revenue', data.business.revenue);
+  html += addField('Employees', data.business.employees);
+
+  html += '<h2>⚠️ Goals & Pain Points</h2>';
+  html += addField('Pain Points', data.goals.painPoints);
+  html += addField('Previous Square Experience', data.goals.prevSquare ? 'Yes — '+data.goals.prevSquareDetails : 'No');
+  html += addField('Inefficiencies', data.goals.inefficiencies);
+  html += addField('Switch Reasons', (data.goals.switchReasons||[]).join(', '));
+  html += addField('Decision Maker', (data.goals.decisionMaker.name||'')+' ('+( data.goals.decisionMaker.role||'')+')');
+  html += addField('Day-to-Day Contact', (data.goals.stakeholder.name||'')+' ('+(data.goals.stakeholder.role||'')+')');
+  html += addField('Broader Goals', data.goals.broaderGoals);
+
+  html += '<h2>🛠️ Migration Requirements</h2>';
+  var mh = Object.keys(data.migration.mustHave).filter(function(k){return data.migration.mustHave[k];});
+  var nh = Object.keys(data.migration.niceToHave).filter(function(k){return data.migration.niceToHave[k];});
+  html += addField('Must-Have Features', mh.join(', '));
+  html += addField('Nice-to-Have Features', nh.join(', '));
+  html += addField('Concerns', data.migration.concerns);
+  html += addField('Disruption Tolerance', data.migration.disruption);
+  html += addField('Training Plan', data.migration.training);
+
+  html += '<h2>🧰 Current POS & Tools</h2>';
+  html += addField('Current POS', data.current.pos);
+  html += addField('Contract Status', data.current.contractStatus);
+  html += addField('Checkout Flow', data.current.checkoutFlow);
+  html += addField('Kitchen Workflow', data.current.kitchenWorkflow);
+
+  html += '<h2>💻 Technical Details</h2>';
+  html += addField('Square Products', (data.technical.products||[]).join(', '));
+  html += addField('SaaS Tier', data.technical.tier);
+  html += addField('Monthly Cost', data.technical.monthlyCost);
+
+  html += '<h2>🔧 Hardware & Networking</h2>';
+  html += addField('Networking', data.hardware.networking);
+  html += addField('Cabling Reusable', data.hardware.cablingReusable);
+  html += addField('Cabling Notes', data.hardware.cablingNotes);
+
+  html += '<h2>👥 Staffing & Configuration</h2>';
+  html += addField('Tip Method', data.staffing.tipMethod);
+  html += addField('Tip Details', data.staffing.tipDetails);
+  html += addField('Scheduling', data.staffing.scheduling);
+  html += addField('Time Clock', data.staffing.timeClock);
+
+  html += '<h2>📅 Timeline & Planning</h2>';
+  html += addField('Go-Live Date', data.timeline.goLive);
+  html += addField('Menu Build Start', data.timeline.menuBuild);
+  html += addField('Install Window', (data.timeline.installStart||'')+' to '+(data.timeline.installEnd||''));
+  html += addField('AE On-Site', data.timeline.aeOnSite?'Yes':'No');
+  html += addField('Constraints', data.timeline.constraints);
+
+  if(data.timeline.gsoInstructions){
+    html += '<div class="warn"><strong>⚠️ GSO Instructions:</strong>\n'+esc(data.timeline.gsoInstructions)+'</div>';
+  }
+  if(data.notes.attentionGSO){
+    html += '<div class="attn"><strong>🔴 Attention Items:</strong>\n'+esc(data.notes.attentionGSO)+'</div>';
+  }
+
+  html += '</body></html>';
+
+  var win = window.open('','_blank');
+  win.document.write(html);
+  win.document.close();
+  setTimeout(function(){ win.print(); }, 500);
 }
 
 // MODAL
