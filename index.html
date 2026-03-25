@@ -1333,19 +1333,14 @@ function sfApiCall(method, path, payload){
     return Promise.reject(new Error('API Proxy URL required for Salesforce calls. Configure in ⚙️ Settings.'));
   }
 
-  return fetch(CONFIG.API_PROXY_URL, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
+  return gasPost(CONFIG.API_PROXY_URL, {
       action: 'sf_api',
       instance_url: CONFIG.SF_INSTANCE_URL,
       access_token: CONFIG.SF_ACCESS_TOKEN,
       method: method,
       endpoint: path,
       body: payload || null
-    })
-  }).then(function(resp){ return resp.json(); })
-  .then(function(json){
+  }).then(function(json){
     if(json.ok) return json.data;
     if(json.needs_refresh){
       CONFIG.SF_ACCESS_TOKEN = '';
@@ -1618,11 +1613,7 @@ function saveSettingsAndConnect(){
 function testProxy(){
   var proxyUrl = (document.getElementById('cfgProxyUrl')||{}).value || CONFIG.API_PROXY_URL;
   if(!proxyUrl){ showToast('❌ Enter a proxy URL first','error'); return; }
-  fetch(proxyUrl, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({action: 'health'})
-  }).then(function(resp){ return resp.json(); })
+  gasPost(proxyUrl, {action: 'health'})
   .then(function(json){
     if(json.ok) showToast('✅ Proxy is working!','success');
     else showToast('❌ Proxy responded but returned error: '+(json.error||'unknown'),'error');
@@ -1631,21 +1622,42 @@ function testProxy(){
   });
 }
 
+// ===== GOOGLE APPS SCRIPT POST HELPER =====
+// GAS web apps redirect POST→GET on 302. We use an iframe+form trick
+// OR we can use the fetch API with the right settings.
+// The simplest reliable approach: use XMLHttpRequest which follows redirects.
+function gasPost(url, payload){
+  return new Promise(function(resolve, reject){
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'text/plain');
+    xhr.onload = function(){
+      try {
+        var json = JSON.parse(xhr.responseText);
+        resolve(json);
+      } catch(e){
+        // GAS might return HTML on error
+        if(xhr.responseText.indexOf('<!DOCTYPE')>-1){
+          reject(new Error('Google Apps Script returned HTML — check deployment settings (Who has access: Anyone)'));
+        } else {
+          reject(new Error('Invalid response: '+xhr.responseText.substring(0,200)));
+        }
+      }
+    };
+    xhr.onerror = function(){
+      reject(new Error('Network error — check the proxy URL and your internet connection'));
+    };
+    xhr.send(JSON.stringify(payload));
+  });
+}
+
 // ===== PROXY HELPER =====
-// All external API calls go through the Google Apps Script proxy to avoid CORS
 function proxyFetch(payload){
   var proxyUrl = CONFIG.API_PROXY_URL;
   if(!proxyUrl){
-    return Promise.reject(new Error('No proxy URL configured. Go to ⚙️ Settings → Advanced → API Proxy URL'));
+    return Promise.reject(new Error('No proxy URL configured. Go to ⚙️ Settings → API Proxy URL'));
   }
-  return fetch(proxyUrl, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  }).then(function(resp){
-    // Google Apps Script always returns 200 with redirects, so parse JSON
-    return resp.json();
-  });
+  return gasPost(proxyUrl, payload);
 }
 
 function testSlack(){
@@ -1662,17 +1674,12 @@ function testSlack(){
 
   if(botToken){
     var testMsg = '🧪 *Test from AE Discovery Tool*\nIf you see this, the Slack integration is working! ✅\n_Sent at '+new Date().toLocaleString()+'_';
-    fetch(proxyUrl, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        action: 'slack_bot',
-        token: botToken,
-        channel: channel,
-        text: testMsg
-      })
-    }).then(function(resp){ return resp.json(); })
-    .then(function(json){
+    gasPost(proxyUrl, {
+      action: 'slack_bot',
+      token: botToken,
+      channel: channel,
+      text: testMsg
+    }).then(function(json){
       if(json.ok){
         showToast('✅ Test message sent to '+channel+'!','success');
       } else {
@@ -1687,16 +1694,11 @@ function testSlack(){
       showToast('❌ Proxy error: '+err.message,'error');
     });
   } else if(webhook){
-    fetch(proxyUrl, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        action: 'slack_webhook',
-        webhook_url: webhook,
-        payload: { text: '🧪 *Test from AE Discovery Tool*\nSlack integration working! ✅' }
-      })
-    }).then(function(resp){ return resp.json(); })
-    .then(function(json){
+    gasPost(proxyUrl, {
+      action: 'slack_webhook',
+      webhook_url: webhook,
+      payload: { text: '🧪 *Test from AE Discovery Tool*\nSlack integration working! ✅' }
+    }).then(function(json){
       if(json.ok) showToast('✅ Test message sent!','success');
       else showToast('❌ Slack error: '+(json.error||json.response||'Unknown'),'error');
     }).catch(function(err){
@@ -1854,11 +1856,7 @@ function sendSlack(isIncomplete){
       };
     }
 
-    fetch(CONFIG.API_PROXY_URL, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(proxyPayload)
-    }).then(function(resp){ return resp.json(); })
+    gasPost(CONFIG.API_PROXY_URL, proxyPayload)
     .then(function(json){
       if(json.ok){
         closeModal();
