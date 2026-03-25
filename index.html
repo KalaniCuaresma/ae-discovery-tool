@@ -1329,61 +1329,32 @@ function sfApiCall(method, path, payload){
   if(!sfIsConnected()){
     return Promise.reject(new Error('Not connected to Salesforce'));
   }
-
-  // If we have a proxy URL, route through it (avoids CORS)
-  if(CONFIG.API_PROXY_URL){
-    return fetch(CONFIG.API_PROXY_URL, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        action: 'sf_api',
-        instance_url: CONFIG.SF_INSTANCE_URL,
-        access_token: CONFIG.SF_ACCESS_TOKEN,
-        method: method,
-        endpoint: path,
-        body: payload || null
-      })
-    }).then(function(resp){ return resp.json(); })
-    .then(function(json){
-      if(json.ok) return json.data;
-      if(json.needs_refresh){
-        CONFIG.SF_ACCESS_TOKEN = '';
-        CONFIG.SF_ENABLED = false;
-        saveConfig();
-        updateSFStatus();
-        throw new Error('Session expired — please reconnect Salesforce in ⚙️ Settings');
-      }
-      throw new Error(json.error || 'Salesforce API error');
-    });
+  if(!CONFIG.API_PROXY_URL){
+    return Promise.reject(new Error('API Proxy URL required for Salesforce calls. Configure in ⚙️ Settings.'));
   }
 
-  // Direct API call (works if Salesforce CORS is configured for this origin)
-  var url = CONFIG.SF_INSTANCE_URL + path;
-  var opts = {
-    method: method,
-    headers: {
-      'Authorization': 'Bearer ' + CONFIG.SF_ACCESS_TOKEN,
-      'Content-Type': 'application/json'
-    }
-  };
-  if(payload) opts.body = JSON.stringify(payload);
-
-  return fetch(url, opts).then(function(resp){
-    if(resp.status === 401){
+  return fetch(CONFIG.API_PROXY_URL, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      action: 'sf_api',
+      instance_url: CONFIG.SF_INSTANCE_URL,
+      access_token: CONFIG.SF_ACCESS_TOKEN,
+      method: method,
+      endpoint: path,
+      body: payload || null
+    })
+  }).then(function(resp){ return resp.json(); })
+  .then(function(json){
+    if(json.ok) return json.data;
+    if(json.needs_refresh){
       CONFIG.SF_ACCESS_TOKEN = '';
       CONFIG.SF_ENABLED = false;
       saveConfig();
       updateSFStatus();
       throw new Error('Session expired — please reconnect Salesforce in ⚙️ Settings');
     }
-    if(!resp.ok){
-      return resp.text().then(function(t){
-        try { var err = JSON.parse(t); throw new Error((err[0]&&err[0].message)||'Salesforce API error: '+resp.status); }
-        catch(e){ if(e.message.indexOf('Salesforce')>-1) throw e; throw new Error('Salesforce API error ('+resp.status+'): '+t.substring(0,200)); }
-      });
-    }
-    if(resp.status === 204) return {};
-    return resp.json();
+    throw new Error(json.error || 'Salesforce API error');
   });
 }
 
@@ -1577,11 +1548,15 @@ function openSettings(){
   html+='</div>';
   html+='</div>';
 
-  // ===== PROXY (optional) =====
-  html+='<details style="border-top:1px solid var(--gray-200);padding-top:12px;margin-bottom:16px"><summary style="font-size:12px;color:var(--gray-500);cursor:pointer">Advanced: API Proxy URL (optional)</summary>';
-  html+='<div style="padding:8px 0;font-size:12px;color:var(--gray-400);margin-bottom:6px">If you deploy the Cloud Function proxy, enter its URL here. This routes Slack webhook and Salesforce API calls through your proxy to avoid CORS issues.</div>';
-  html+='<input type="text" id="cfgProxyUrl" value="'+esc(CONFIG.API_PROXY_URL)+'" placeholder="https://us-central1-yourproject.cloudfunctions.net/ae-discovery-api" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font)">';
-  html+='</details>';
+  // ===== PROXY (required for integrations) =====
+  html+='<div style="border-top:1px solid var(--gray-200);padding-top:16px;margin-bottom:16px">';
+  html+='<h4 style="margin-bottom:4px;display:flex;align-items:center;gap:6px"><span style="font-size:18px">🔗</span> API Proxy <span style="font-size:10px;background:var(--red);color:#fff;padding:1px 6px;border-radius:10px">Required</span></h4>';
+  html+='<div style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Routes Slack & Salesforce API calls through a proxy to avoid browser CORS restrictions. Deploy the Google Apps Script (see setup guide below), then paste the deployment URL here.</div>';
+  html+='<input type="text" id="cfgProxyUrl" value="'+esc(CONFIG.API_PROXY_URL)+'" placeholder="https://script.google.com/macros/s/AKfycb.../exec" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px;font-family:var(--font);margin-bottom:6px">';
+  if(CONFIG.API_PROXY_URL){
+    html+='<button class="btn" style="font-size:11px;padding:4px 10px" onclick="testProxy()">🧪 Test Proxy</button>';
+  }
+  html+='</div>';
 
   // ===== SETUP HELP =====
   html+='<div style="border-top:1px solid var(--gray-200);padding-top:12px;font-size:11px;color:var(--gray-400)">';
@@ -1640,54 +1615,92 @@ function saveSettingsAndConnect(){
   sfConnect();
 }
 
+function testProxy(){
+  var proxyUrl = (document.getElementById('cfgProxyUrl')||{}).value || CONFIG.API_PROXY_URL;
+  if(!proxyUrl){ showToast('❌ Enter a proxy URL first','error'); return; }
+  fetch(proxyUrl, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'health'})
+  }).then(function(resp){ return resp.json(); })
+  .then(function(json){
+    if(json.ok) showToast('✅ Proxy is working!','success');
+    else showToast('❌ Proxy responded but returned error: '+(json.error||'unknown'),'error');
+  }).catch(function(err){
+    showToast('❌ Proxy error: '+err.message,'error');
+  });
+}
+
+// ===== PROXY HELPER =====
+// All external API calls go through the Google Apps Script proxy to avoid CORS
+function proxyFetch(payload){
+  var proxyUrl = CONFIG.API_PROXY_URL;
+  if(!proxyUrl){
+    return Promise.reject(new Error('No proxy URL configured. Go to ⚙️ Settings → Advanced → API Proxy URL'));
+  }
+  return fetch(proxyUrl, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(function(resp){
+    // Google Apps Script always returns 200 with redirects, so parse JSON
+    return resp.json();
+  });
+}
+
 function testSlack(){
-  // Determine which method to use
   var botToken = document.getElementById('cfgSlackBot').value.trim();
   var channel = document.getElementById('cfgSlackChannel').value.trim() || '#onboarding-handoffs';
   var webhookEl = document.getElementById('cfgSlackWebhook');
   var webhook = webhookEl ? webhookEl.value.trim() : '';
+  var proxyUrl = (document.getElementById('cfgProxyUrl')||{}).value || CONFIG.API_PROXY_URL;
+
+  if(!proxyUrl){
+    showToast('❌ Set the API Proxy URL first (see Advanced section below)','error');
+    return;
+  }
 
   if(botToken){
-    // Use Slack Web API with Bot Token
     var testMsg = '🧪 *Test from AE Discovery Tool*\nIf you see this, the Slack integration is working! ✅\n_Sent at '+new Date().toLocaleString()+'_';
-    fetch('https://slack.com/api/chat.postMessage', {
+    fetch(proxyUrl, {
       method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + botToken,
-        'Content-Type': 'application/json; charset=utf-8'
-      },
+      headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
+        action: 'slack_bot',
+        token: botToken,
         channel: channel,
-        text: testMsg,
-        mrkdwn: true
+        text: testMsg
       })
     }).then(function(resp){ return resp.json(); })
     .then(function(json){
       if(json.ok){
         showToast('✅ Test message sent to '+channel+'!','success');
       } else {
-        showToast('❌ Slack error: '+json.error+(json.error==='not_in_channel'?' — invite the bot to the channel first':'')+(json.error==='channel_not_found'?' — use channel ID (C...) or add chat:write.public scope':''),'error');
+        var err = json.error || 'Unknown error';
+        var hint = '';
+        if(err==='not_in_channel') hint = ' — invite the bot to the channel first';
+        if(err==='channel_not_found') hint = ' — use channel ID (C...) or add chat:write.public scope';
+        if(err==='invalid_auth') hint = ' — check your bot token';
+        showToast('❌ Slack error: '+err+hint,'error');
       }
     }).catch(function(err){
-      showToast('❌ Network error: '+err.message,'error');
+      showToast('❌ Proxy error: '+err.message,'error');
     });
   } else if(webhook){
-    // Use webhook (may hit CORS)
-    var testPayload = {
-      text: '🧪 *Test from AE Discovery Tool*\nIf you see this, the Slack integration is working! ✅'
-    };
-    fetch(webhook, {
+    fetch(proxyUrl, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(testPayload)
-    }).then(function(resp){
-      if(resp.ok){
-        showToast('✅ Test message sent to Slack!','success');
-      } else {
-        resp.text().then(function(t){ showToast('❌ Slack error: '+t,'error'); });
-      }
+      body: JSON.stringify({
+        action: 'slack_webhook',
+        webhook_url: webhook,
+        payload: { text: '🧪 *Test from AE Discovery Tool*\nSlack integration working! ✅' }
+      })
+    }).then(function(resp){ return resp.json(); })
+    .then(function(json){
+      if(json.ok) showToast('✅ Test message sent!','success');
+      else showToast('❌ Slack error: '+(json.error||json.response||'Unknown'),'error');
     }).catch(function(err){
-      showToast('❌ Network error: '+err.message+' (CORS may block browser-direct webhooks)','error');
+      showToast('❌ Proxy error: '+err.message,'error');
     });
   } else {
     showToast('❌ Enter a Bot Token or Webhook URL first','error');
@@ -1812,32 +1825,39 @@ function sendSlack(isIncomplete){
   var slackContent = document.querySelector('.slack-content');
   if(!slackContent) { closeModal(); return; }
 
-  // Build Slack message
   var slackMsg = buildSlackBlocks(isIncomplete);
   var hasBot = CONFIG.SLACK_ENABLED && CONFIG.SLACK_BOT_TOKEN;
   var hasWebhook = CONFIG.SLACK_ENABLED && CONFIG.SLACK_WEBHOOK_URL;
-  var hasProxy = CONFIG.API_PROXY_URL && CONFIG.SLACK_WEBHOOK_URL;
+  var hasProxy = !!CONFIG.API_PROXY_URL;
 
-  if(hasBot){
-    // ===== REAL Slack via Bot Token (recommended, no CORS issues) =====
-    var body = document.getElementById('modalBody');
-    var footer = document.getElementById('modalFooter');
-    body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:rgba(0,106,255,.2);border-top-color:var(--blue);width:40px;height:40px;margin:0 auto 16px"></div><div style="color:var(--gray-500)">Sending to '+esc(CONFIG.SLACK_CHANNEL)+'...</div></div>';
-    footer.innerHTML='';
+  if((hasBot || hasWebhook) && hasProxy){
+    // ===== REAL Slack via Proxy =====
+    var mbody = document.getElementById('modalBody');
+    var mfooter = document.getElementById('modalFooter');
+    mbody.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:rgba(0,106,255,.2);border-top-color:var(--blue);width:40px;height:40px;margin:0 auto 16px"></div><div style="color:var(--gray-500)">Sending to '+esc(CONFIG.SLACK_CHANNEL)+'...</div></div>';
+    mfooter.innerHTML='';
 
-    fetch('https://slack.com/api/chat.postMessage', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + CONFIG.SLACK_BOT_TOKEN,
-        'Content-Type': 'application/json; charset=utf-8'
-      },
-      body: JSON.stringify({
+    var proxyPayload;
+    if(hasBot){
+      proxyPayload = {
+        action: 'slack_bot',
+        token: CONFIG.SLACK_BOT_TOKEN,
         channel: CONFIG.SLACK_CHANNEL,
         text: slackMsg.text,
-        blocks: slackMsg.blocks,
-        mrkdwn: true,
-        unfurl_links: false
-      })
+        blocks: slackMsg.blocks
+      };
+    } else {
+      proxyPayload = {
+        action: 'slack_webhook',
+        webhook_url: CONFIG.SLACK_WEBHOOK_URL,
+        payload: slackMsg
+      };
+    }
+
+    fetch(CONFIG.API_PROXY_URL, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(proxyPayload)
     }).then(function(resp){ return resp.json(); })
     .then(function(json){
       if(json.ok){
@@ -1847,44 +1867,25 @@ function sendSlack(isIncomplete){
         var errMsg = json.error || 'Unknown error';
         var hint = '';
         if(errMsg === 'not_in_channel') hint = 'Invite the bot to '+CONFIG.SLACK_CHANNEL+' first, or add chat:write.public scope.';
-        else if(errMsg === 'channel_not_found') hint = 'Channel not found. Use the channel ID (starts with C) or ensure the name is correct.';
-        else if(errMsg === 'invalid_auth') hint = 'Bot token is invalid. Check your token in ⚙️ Settings.';
-        body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Slack Error: '+esc(errMsg)+'</strong>'+(hint?'<br><br><span style="font-size:12px;color:var(--gray-500)">'+esc(hint)+'</span>':'')+'</div>';
-        footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button><button class="btn" onclick="openSettings()">⚙️ Settings</button>';
+        else if(errMsg === 'channel_not_found') hint = 'Channel not found. Try using the channel ID (starts with C).';
+        else if(errMsg === 'invalid_auth') hint = 'Bot token is invalid. Check it in ⚙️ Settings.';
+        mbody.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Slack Error: '+esc(errMsg)+'</strong>'+(hint?'<br><br><span style="font-size:12px;color:var(--gray-500)">'+esc(hint)+'</span>':'')+'</div>';
+        mfooter.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button><button class="btn" onclick="openSettings()">⚙️ Settings</button>';
       }
     }).catch(function(err){
-      body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Network Error</strong><br><br>'+esc(err.message)+'</div>';
-      footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button>';
+      mbody.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Proxy Error</strong><br><br>'+esc(err.message)+'<br><br><span style="font-size:12px;color:var(--gray-500)">Check your API Proxy URL in ⚙️ Settings</span></div>';
+      mfooter.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button>';
     });
 
-  } else if(hasProxy){
-    // ===== Webhook via proxy =====
-    var body = document.getElementById('modalBody');
-    var footer = document.getElementById('modalFooter');
-    body.innerHTML='<div style="text-align:center;padding:40px"><div class="spinner" style="border-color:rgba(0,106,255,.2);border-top-color:var(--blue);width:40px;height:40px;margin:0 auto 16px"></div><div style="color:var(--gray-500)">Sending via proxy...</div></div>';
-    footer.innerHTML='';
-
-    fetch(CONFIG.API_PROXY_URL, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        action: 'slack',
-        webhook_url: CONFIG.SLACK_WEBHOOK_URL,
-        payload: slackMsg
-      })
-    }).then(function(resp){ return resp.json(); })
-    .then(function(json){
-      if(json.ok){
-        closeModal();
-        showToast(isIncomplete ? '📤 Alert sent to '+CONFIG.SLACK_CHANNEL : '✅ Discovery sent to '+CONFIG.SLACK_CHANNEL, 'success');
-      } else {
-        body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Error: '+esc(json.error||'Unknown')+'</strong></div>';
-        footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button>';
-      }
-    }).catch(function(err){
-      body.innerHTML='<div style="color:var(--red);padding:20px;text-align:center"><strong>❌ Proxy Error: '+esc(err.message)+'</strong></div>';
-      footer.innerHTML='<button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="copySlackText()">📋 Copy Instead</button>';
-    });
+  } else if(CONFIG.SLACK_ENABLED && !hasProxy){
+    // No proxy — copy and warn
+    closeModal();
+    var text = slackContent.innerText;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){
+        showToast('📋 Copied! Set up API Proxy in ⚙️ Settings for auto-send to Slack','info');
+      }).catch(function(){ fallbackCopy(text); });
+    } else { fallbackCopy(text); }
 
   } else {
     // ===== No integration configured — copy to clipboard =====
@@ -1892,7 +1893,7 @@ function sendSlack(isIncomplete){
     var text = slackContent.innerText;
     if(navigator.clipboard&&navigator.clipboard.writeText){
       navigator.clipboard.writeText(text).then(function(){
-        showToast('📋 Copied to clipboard — paste in '+CONFIG.SLACK_CHANNEL+(CONFIG.SLACK_BOT_TOKEN?'':' (configure Slack in ⚙️ for auto-send)'),'info');
+        showToast('📋 Copied to clipboard — configure Slack in ⚙️ for auto-send','info');
       }).catch(function(){ fallbackCopy(text); });
     } else { fallbackCopy(text); }
   }
