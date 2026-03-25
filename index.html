@@ -1683,12 +1683,15 @@ function testSlack(){
     }).then(function(resp){
       if(resp.ok){
         showToast('✅ Test message sent to Slack!','success');
-    } else {
-      resp.text().then(function(t){ showToast('❌ Slack error: '+t,'error'); });
-    }
-  }).catch(function(err){
-    showToast('❌ Network error: '+err.message+' (CORS may block browser-direct webhooks)','error');
-  });
+      } else {
+        resp.text().then(function(t){ showToast('❌ Slack error: '+t,'error'); });
+      }
+    }).catch(function(err){
+      showToast('❌ Network error: '+err.message+' (CORS may block browser-direct webhooks)','error');
+    });
+  } else {
+    showToast('❌ Enter a Bot Token or Webhook URL first','error');
+  }
 }
 
 // SUBMIT FOR ONBOARDING
